@@ -45,7 +45,10 @@ _printRAXLoop:
     pop rax
     cmp rax, 0
     jne _printRAXLoop
- 
+
+    ; digitSpacePos is one past the last digit; step back onto it
+    dec qword [digitSpacePos]
+
 _printRAXLoop2:
     mov rcx, [digitSpacePos]
  
