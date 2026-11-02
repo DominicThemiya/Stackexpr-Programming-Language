@@ -28,8 +28,8 @@ for src in examples/*.sxp; do
 done
 
 # Freestanding: an ELF with a custom entry and linker script, and a flat binary.
-kernel=examples/kernel/vga.sxp
-kflags=(--freestanding --entry kmain -T examples/kernel/linker.ld)
+kernel=tests/fixtures/halt.sxp
+kflags=(--freestanding --entry kmain -T tests/fixtures/flat.ld)
 if [ $have_nasm = 1 ]; then
     if $SX "$kernel" "${kflags[@]}" -o "$TMP/kernel.elf" 2>"$TMP/err" &&
        readelf -h "$TMP/kernel.elf" | grep -q 'Entry point address: *0x100000$' &&
@@ -47,6 +47,23 @@ if [ $have_nasm = 1 ]; then
     fi
 elif ! $SX -S "$kernel" "${kflags[@]}" -o "$TMP/kernel" 2>"$TMP/err"; then
     echo "FAIL freestanding: compile"; cat "$TMP/err"; fail=1
+fi
+
+# Boot the example kernel in QEMU and check that "Hi" (white on black) is in VGA memory.
+if [ $have_nasm = 1 ] && command -v qemu-system-x86_64 >/dev/null; then
+    if $SX examples/kernel/vga.sxp --freestanding --entry kmain -T lib/multiboot.ld -o "$TMP/vga" 2>"$TMP/err"; then
+        screen=$( (sleep 2; echo "xp /2xh 0xb8000"; echo quit) |
+                  timeout 30 qemu-system-x86_64 -kernel "$TMP/vga" -display none -monitor stdio 2>&1 )
+        if [[ "$screen" == *"0x0f48 0x0f69"* ]]; then
+            echo "ok   qemu boot"
+        else
+            echo "FAIL qemu boot: VGA memory did not contain 'Hi'"; fail=1
+        fi
+    else
+        echo "FAIL qemu boot: compile"; cat "$TMP/err"; fail=1
+    fi
+else
+    echo "note: qemu-system-x86_64 not found, skipping boot test"
 fi
 
 # expect_error <source> <message substring>

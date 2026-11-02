@@ -25,7 +25,8 @@ public:
         out_ << "bits 64\n"
              << "default rel\n\n"
              << "section .text\n"
-             << "global " << options_.entry << "\n";
+             << "global " << options_.entry << "\n"
+             << "%define SX_ENTRY " << options_.entry << "\n";
 
         for (const Include& inc : prog_.includes) {
             out_ << "\n;; --- grab asm<" << inc.lib << "> ---\n"
@@ -33,7 +34,10 @@ public:
         }
 
         const StackExprDef& main = prog_.stackexprs.at("main");
-        out_ << "\n" << options_.entry << ":\n";
+        // Libraries may switch sections or modes; return to 64-bit code.
+        out_ << "\nsection .text\n"
+             << "bits 64\n"
+             << options_.entry << ":\n";
         expanding_.push_back(&main);
         emit_block(main.body);
         expanding_.pop_back();

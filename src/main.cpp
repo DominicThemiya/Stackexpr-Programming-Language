@@ -187,9 +187,12 @@ int main(int argc, char** argv) {
 
     int rc = run({"nasm", "-felf64", "-i", include_dir, asm_path.string(), "-o", obj_path.string()});
     if (rc == 0) {
-        std::vector<std::string> ld = {"ld", "-static", "-z", "noexecstack", "-e", codegen.entry};
+        std::vector<std::string> ld = {"ld", "-static", "-z", "noexecstack"};
+        // A linker script chooses its own ENTRY (e.g. a boot stub), so only force it otherwise.
+        if (linker_script.empty()) ld.insert(ld.end(), {"-e", codegen.entry});
         if (codegen.freestanding) {
-            ld.insert(ld.end(), {"-nostdlib", "-z", "max-page-size=0x1000"});
+            // Kernels commonly put code and data in one writable, executable segment.
+            ld.insert(ld.end(), {"-nostdlib", "-z", "max-page-size=0x1000", "--no-warn-rwx-segments"});
         }
         if (!linker_script.empty()) ld.insert(ld.end(), {"-T", linker_script});
         if (!base.empty()) ld.push_back("-Ttext-segment=" + base);

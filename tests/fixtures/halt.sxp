@@ -1,0 +1,4 @@
+// Freestanding program with no boot stub: its image is just code ending in the halt loop.
+stackexpr main
+	1 drop
+end

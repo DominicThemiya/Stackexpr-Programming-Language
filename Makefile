@@ -6,7 +6,10 @@ INCLUDES := -Isrc -Ithird_party/LexEngine
 SOURCES := $(wildcard src/*.cpp)
 HEADERS := $(wildcard src/*.hpp) $(wildcard third_party/LexEngine/*.hpp)
 
-.PHONY: all test clean
+KERNEL := examples/kernel/vga
+KERNEL_FLAGS := --freestanding --entry kmain -T lib/multiboot.ld
+
+.PHONY: all test clean kernel run-kernel
 
 all: build/stackexpr
 
@@ -17,6 +20,13 @@ build/stackexpr: $(SOURCES) $(HEADERS)
 
 test: build/stackexpr
 	./tests/run.sh
+
+kernel: build/stackexpr
+	./build/stackexpr $(KERNEL).sxp $(KERNEL_FLAGS) -o build/kernel
+
+# Boots the kernel in QEMU. Close the window (or Ctrl+C) to quit.
+run-kernel: kernel
+	qemu-system-x86_64 -kernel build/kernel
 
 clean:
 	rm -rf build

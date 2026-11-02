@@ -1,4 +1,5 @@
 ENTRY(kmain)
+/* Minimal kernel layout without a boot stub, used to check freestanding output. */
 
 SECTIONS
 {

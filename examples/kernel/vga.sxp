@@ -1,8 +1,10 @@
-// A freestanding kernel entry that writes "Hi" to the VGA text buffer and halts.
-// Needs to be booted in VGA text mode with 0xB8000 identity-mapped.
+// A freestanding kernel that writes "Hi" to the VGA text screen and halts.
+// asm<multiboot> makes it bootable with QEMU or GRUB; see docs/freestanding.md.
 //
-//   ./build/stackexpr examples/kernel/vga.sxp --freestanding --entry kmain \
-//       -T examples/kernel/linker.ld
+//   ./build/stackexpr examples/kernel/vga.sxp --freestanding --entry kmain -T lib/multiboot.ld
+//   qemu-system-x86_64 -kernel examples/kernel/vga
+
+grab asm<multiboot>
 
 stackexpr vga_put    // char index --   (white on black)
 	2 * 0xb8000 +
