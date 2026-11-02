@@ -5,15 +5,15 @@ stackexpr push_num 100 100 end
 stackexpr push_if_output 69 end
 stackexpr push_else_output 96 end
 
-entry
+stackexpr main
 	call push_num
 	== if
-		 call push_if_output
-		 call putI64
+		call push_if_output
+		call putI64
 	end
 	call push_num
 	!= if
-		 call push_else_output
-		 call putI64
+		call push_else_output
+		call putI64
 	end
 end

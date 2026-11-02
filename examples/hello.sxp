@@ -1,0 +1,8 @@
+grab asm<io>
+grab asm<linux64>
+
+const greeting "Hello, world!\n"
+
+stackexpr main
+	invoke "putS greeting"
+end

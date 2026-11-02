@@ -1,0 +1,12 @@
+grab asm<io>
+grab asm<linux64>
+
+// Prints 5 down to 1.
+stackexpr main
+	5
+	while dup 0 > do
+		dup call putI64
+		1 -
+	end
+	drop
+end

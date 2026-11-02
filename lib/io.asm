@@ -12,7 +12,7 @@
     jmp %%printLoop
 %%endPrintLoop:
     mov rax, SYS_WRITE
-    mov rdi, STDIN
+    mov rdi, STDOUT
     mov rsi, %1
     mov rdx, rbx
     syscall

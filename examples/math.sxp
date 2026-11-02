@@ -1,0 +1,14 @@
+grab asm<io>
+grab asm<linux64>
+
+stackexpr math
+	3 4 +
+end
+
+stackexpr main
+	call math call putI64      // 7
+	10 3 - call putI64         // 7
+	-6 7 * call putI64         // -42
+	-7 2 / call putI64         // -3
+	41 ++ call putI64          // 42
+end
