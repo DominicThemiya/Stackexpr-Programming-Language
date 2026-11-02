@@ -7,7 +7,6 @@
             │
   Nov 2026  ●  Stackexpr
                Rewritten in C++ with LexEngine.
-               "entry" replaced by "stackexpr main".
 ```
 
 Stackexpr is a concatenative stack-based programming language that compiles to x86_64 Assembly.
