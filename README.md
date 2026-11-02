@@ -1,9 +1,14 @@
 # Stackexpr
 
-| When | Version |
-| --- | --- |
-| July 2022 | First version, written in Python under the name **Nugly** |
-| November 2026 | Rewritten in C++ with [LexEngine](https://github.com/DominicThemiya/LexEngine), renamed **Stackexpr**, and `entry` replaced by `stackexpr main` |
+```
+  Jul 2022  ●  Nugly
+            │  The first version, written in Python.
+            │
+            │
+  Nov 2026  ●  Stackexpr
+               Rewritten in C++ with LexEngine.
+               `entry` replaced by `stackexpr main`.
+```
 
 Stackexpr is a concatenative stack-based programming language that compiles to x86_64 Assembly.
 Reverse Polish Notation is used extensively.
