@@ -1,0 +1,27 @@
+grab asm<io>
+grab asm<linux64>
+
+stackexpr main
+	// Bitwise
+	12 10 and call putI64         // 8
+	12 10 or call putI64          // 14
+	12 10 xor call putI64         // 6
+	0 not call putI64             // -1
+	1 4 shl call putI64           // 16
+	-16 2 shr call putI64         // 4611686018427387900 (logical)
+	-16 2 sar call putI64         // -4 (arithmetic)
+
+	// Signed vs unsigned
+	-1 1 < call putI64            // 1
+	-1 1 ult call putI64          // 0 (-1 is the largest unsigned value)
+	-1 0 ugt call putI64          // 1
+	7 7 ule call putI64           // 1
+	7 7 uge call putI64           // 1
+	-1 2 udiv call putI64         // 9223372036854775807
+	-17 5 mod call putI64         // -2
+	17 5 umod call putI64         // 2
+
+	// Literals may use the full unsigned 64-bit range
+	0xffffffff80000000 call putI64   // -2147483648
+	0b1010 0xf0 or call putI64       // 250
+end

@@ -10,7 +10,7 @@ namespace {
 
 class Generator {
 public:
-    explicit Generator(const Program& prog) : prog_(prog) {
+    Generator(const Program& prog, const CodegenOptions& options) : prog_(prog), options_(options) {
         for (const ConstDef& c : prog.consts) {
             if (!const_names_.insert(c.name).second) {
                 throw CompileError(c.loc, "const '" + c.name + "' is already defined");
@@ -25,7 +25,7 @@ public:
         out_ << "bits 64\n"
              << "default rel\n\n"
              << "section .text\n"
-             << "global _start\n";
+             << "global " << options_.entry << "\n";
 
         for (const Include& inc : prog_.includes) {
             out_ << "\n;; --- grab asm<" << inc.lib << "> ---\n"
@@ -33,23 +33,35 @@ public:
         }
 
         const StackExprDef& main = prog_.stackexprs.at("main");
-        out_ << "\n_start:\n";
+        out_ << "\n" << options_.entry << ":\n";
         expanding_.push_back(&main);
         emit_block(main.body);
         expanding_.pop_back();
 
-        out_ << "\n;; --- exit(0) ---\n"
-             << "    mov rax, 60\n"
-             << "    xor rdi, rdi\n"
-             << "    syscall\n";
+        if (options_.freestanding) {
+            out_ << "\n;; --- halt ---\n"
+                 << "_sx_halt:\n"
+                 << "    cli\n"
+                 << "    hlt\n"
+                 << "    jmp _sx_halt\n";
+        } else {
+            out_ << "\n;; --- exit(0) ---\n"
+                 << "    mov rax, 60\n"
+                 << "    xor rdi, rdi\n"
+                 << "    syscall\n";
+        }
 
-        // Storage required by lib/io.asm.
-        out_ << "\nsection .bss\n"
-             << "    digitSpace resb 100\n"
-             << "    digitSpacePos resb 8\n";
+        bool uses_io = false;
+        for (const Include& inc : prog_.includes) uses_io = uses_io || inc.lib == "io";
+        if (uses_io) {
+            // Storage required by lib/io.asm.
+            out_ << "\nsection .bss\n"
+                 << "    digitSpace resb 100\n"
+                 << "    digitSpacePos resb 8\n";
+        }
 
-        out_ << "\nsection .data\n"
-             << "    negative_symbol db '-', 0\n";
+        out_ << "\nsection .data\n";
+        if (uses_io) out_ << "    negative_symbol db '-', 0\n";
         for (const ConstDef& c : prog_.consts) {
             if (c.is_string) {
                 out_ << "    " << c.name << " db " << nasm_string(c.string_value) << ", 0\n";
@@ -62,6 +74,7 @@ public:
 
 private:
     const Program& prog_;
+    const CodegenOptions& options_;
     std::ostringstream out_;
     std::set<std::string> const_names_;
     std::vector<const StackExprDef*> expanding_;  // for recursion detection
@@ -92,6 +105,22 @@ private:
         binary(what, {"cmp rax, rbx", setcc, "movzx rax, al"});
     }
 
+    // addr -- value
+    void load(const char* what, const char* insn) {
+        comment(what);
+        line("pop rax");
+        line(insn);
+        line("push rax");
+    }
+
+    // value addr --
+    void store(const char* what, const char* insn) {
+        comment(what);
+        line("pop rbx");
+        line("pop rax");
+        line(insn);
+    }
+
     void emit_block(const std::vector<Op>& ops) {
         for (const Op& op : ops) emit(op);
     }
@@ -116,6 +145,27 @@ private:
             case OpKind::Sub: binary("-", {"sub rax, rbx"}); return;
             case OpKind::Mul: binary("*", {"imul rax, rbx"}); return;
             case OpKind::Div: binary("/", {"cqo", "idiv rbx"}); return;
+            case OpKind::Mod: binary("mod", {"cqo", "idiv rbx", "mov rax, rdx"}); return;
+            case OpKind::UDiv: binary("udiv", {"xor edx, edx", "div rbx"}); return;
+            case OpKind::UMod: binary("umod", {"xor edx, edx", "div rbx", "mov rax, rdx"}); return;
+            case OpKind::And: binary("and", {"and rax, rbx"}); return;
+            case OpKind::Or: binary("or", {"or rax, rbx"}); return;
+            case OpKind::Xor: binary("xor", {"xor rax, rbx"}); return;
+            case OpKind::Shl: binary("shl", {"mov rcx, rbx", "shl rax, cl"}); return;
+            case OpKind::Shr: binary("shr", {"mov rcx, rbx", "shr rax, cl"}); return;
+            case OpKind::Sar: binary("sar", {"mov rcx, rbx", "sar rax, cl"}); return;
+            case OpKind::Not:
+                comment("not");
+                line("not qword [rsp]");
+                return;
+            case OpKind::Load8: load("@8", "movzx eax, byte [rax]"); return;
+            case OpKind::Load16: load("@16", "movzx eax, word [rax]"); return;
+            case OpKind::Load32: load("@32", "mov eax, dword [rax]"); return;
+            case OpKind::Load64: load("@64", "mov rax, qword [rax]"); return;
+            case OpKind::Store8: store("!8", "mov byte [rbx], al"); return;
+            case OpKind::Store16: store("!16", "mov word [rbx], ax"); return;
+            case OpKind::Store32: store("!32", "mov dword [rbx], eax"); return;
+            case OpKind::Store64: store("!64", "mov qword [rbx], rax"); return;
             case OpKind::Inc:
                 comment("++");
                 line("inc qword [rsp]");
@@ -126,6 +176,10 @@ private:
             case OpKind::Gt: compare(">", "setg al"); return;
             case OpKind::Le: compare("<=", "setle al"); return;
             case OpKind::Ge: compare(">=", "setge al"); return;
+            case OpKind::ULt: compare("ult", "setb al"); return;
+            case OpKind::UGt: compare("ugt", "seta al"); return;
+            case OpKind::ULe: compare("ule", "setbe al"); return;
+            case OpKind::UGe: compare("uge", "setae al"); return;
             case OpKind::Dup:
                 comment("dup");
                 line("push qword [rsp]");
@@ -207,8 +261,8 @@ private:
 
 }  // namespace
 
-std::string generate(const Program& prog) {
-    return Generator(prog).run();
+std::string generate(const Program& prog, const CodegenOptions& options) {
+    return Generator(prog, options).run();
 }
 
 }  // namespace stackexpr

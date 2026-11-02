@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Compiles every example and, when nasm is installed, runs it and compares
-# its output with tests/expected/<name>.txt. Also checks some compile errors.
+# its output with tests/expected/<name>.txt. Also checks freestanding output
+# and some compile errors.
 set -u
 cd "$(dirname "$0")/.."
 SX=./build/stackexpr
@@ -26,6 +27,28 @@ for src in examples/*.sxp; do
     echo "ok   $name"
 done
 
+# Freestanding: an ELF with a custom entry and linker script, and a flat binary.
+kernel=examples/kernel/vga.sxp
+kflags=(--freestanding --entry kmain -T examples/kernel/linker.ld)
+if [ $have_nasm = 1 ]; then
+    if $SX "$kernel" "${kflags[@]}" -o "$TMP/kernel.elf" 2>"$TMP/err" &&
+       readelf -h "$TMP/kernel.elf" | grep -q 'Entry point address: *0x100000$' &&
+       nm "$TMP/kernel.elf" | grep -q '^0000000000100000 T kmain$'; then
+        echo "ok   freestanding elf"
+    else
+        echo "FAIL freestanding elf"; cat "$TMP/err"; fail=1
+    fi
+    # The binary must be raw code ending in the halt loop: cli; hlt; jmp -4
+    if $SX "$kernel" "${kflags[@]}" --format bin -o "$TMP/kernel.bin" 2>"$TMP/err" &&
+       [ "$(tail -c 4 "$TMP/kernel.bin" | od -An -tx1 | tr -d ' \n')" = "faf4ebfc" ]; then
+        echo "ok   freestanding bin"
+    else
+        echo "FAIL freestanding bin"; cat "$TMP/err"; fail=1
+    fi
+elif ! $SX -S "$kernel" "${kflags[@]}" -o "$TMP/kernel" 2>"$TMP/err"; then
+    echo "FAIL freestanding: compile"; cat "$TMP/err"; fail=1
+fi
+
 # expect_error <source> <message substring>
 expect_error() {
     printf '%b' "$1" > "$TMP/e.sxp"
@@ -45,5 +68,7 @@ expect_error 'stackexpr main call a end\nstackexpr a call a end\n' 'recursive st
 expect_error 'stackexpr main call main end\n' 'cannot be called'
 expect_error 'stackexpr main call nope end\n' "unknown stackexpr 'nope'"
 expect_error 'stackexpr main end\nstackexpr main end\n' 'already defined'
+expect_error 'stackexpr main -9223372036854775809 end\n' 'does not fit in 64 bits'
+expect_error 'stackexpr main 0x1ffffffffffffffff end\n' 'does not fit in 64 bits'
 
 exit $fail

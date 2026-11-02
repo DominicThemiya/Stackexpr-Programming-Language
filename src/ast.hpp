@@ -23,8 +23,13 @@ struct CompileError : std::runtime_error {
 enum class OpKind {
     PushInt,    // value
     PushConst,  // name: pushes the address of a const
-    Add, Sub, Mul, Div, Inc,
+    Add, Sub, Mul, Div, Mod, Inc,
+    UDiv, UMod,
     Eq, Ne, Lt, Gt, Le, Ge,
+    ULt, UGt, ULe, UGe,
+    And, Or, Xor, Not, Shl, Shr, Sar,
+    Load8, Load16, Load32, Load64,     // addr -- value (zero-extended)
+    Store8, Store16, Store32, Store64, // value addr --
     Dup, Swap, Drop,
     Call,       // name: a stackexpr or an assembly library macro
     Asm,        // text: raw assembly from `invoke "..."`

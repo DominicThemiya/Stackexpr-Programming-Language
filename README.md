@@ -42,6 +42,24 @@ If you cloned without `--recurse-submodules`, run `git submodule update --init` 
 
 Libraries for `grab asm<...>` are looked up in `-L <dir>`, then `$STACKEXPR_LIB`, then the `lib/` directory next to the compiler.
 
+### Freestanding (kernels and boot code)
+
+`--freestanding` compiles a program that doesn't assume an operating system. When `main` finishes, the CPU disables interrupts and halts instead of calling Linux's `exit`.
+
+```sh
+./build/stackexpr examples/kernel/vga.sxp --freestanding --entry kmain -T examples/kernel/linker.ld
+```
+
+| Option | Meaning |
+| --- | --- |
+| `--freestanding` | Halt (`cli; hlt`) when `main` ends instead of calling `exit` |
+| `--entry <symbol>` | Name of the entry symbol (default `_start`) |
+| `-T <script>` | Link with your own linker script |
+| `--base <address>` | Load address of the code, e.g. `0x100000` or `0xffffffff80000000` |
+| `--format elf\|bin` | Output an ELF file (default) or a flat binary |
+
+A flat binary contains no `.bss`, so whatever loads it must zero that memory. The `io` library uses Linux system calls, so it can't be used in freestanding programs.
+
 ## The language
 
 Linux x86_64 Assembly libraries.
@@ -99,14 +117,38 @@ end
 | Word | Stack effect | Meaning |
 | --- | --- | --- |
 | `42`, `-7`, `0xff`, `0b101`, `1_000` | `-- n` | Push an integer |
-| `+` `-` `*` `/` | `a b -- r` | Arithmetic: `a + b`, `a - b`, `a * b`, `a / b` |
+| `+` `-` `*` `/` `mod` | `a b -- r` | Signed arithmetic: `a + b`, `a - b`, `a * b`, `a / b`, `a % b` |
+| `udiv` `umod` | `a b -- r` | Unsigned division and remainder |
 | `++` | `a -- a+1` | Increment |
-| `==` `!=` `<` `>` `<=` `>=` | `a b -- flag` | Compare `a` with `b`, push 1 or 0 |
+| `==` `!=` `<` `>` `<=` `>=` | `a b -- flag` | Signed compare of `a` with `b`, push 1 or 0 |
+| `ult` `ugt` `ule` `uge` | `a b -- flag` | Unsigned compare (use these for addresses) |
+| `and` `or` `xor` | `a b -- r` | Bitwise operations |
+| `not` | `a -- ~a` | Bitwise complement |
+| `shl` `shr` `sar` | `a n -- r` | Shift `a` by `n` bits: left, right (logical), right (arithmetic) |
+| `@8` `@16` `@32` `@64` | `addr -- value` | Load 1, 2, 4 or 8 bytes from memory (zero-extended) |
+| `!8` `!16` `!32` `!64` | `value addr --` | Store the low 1, 2, 4 or 8 bytes of `value` to memory |
 | `dup` | `a -- a a` | Duplicate |
 | `swap` | `a b -- b a` | Swap |
 | `drop` | `a --` | Discard |
 
 `-7` (no space) is a negative number; a `-` on its own is subtraction.
+Integers are 64-bit. Positive literals may use the full unsigned range, so addresses like `0xffffffff80000000` work.
+
+### Memory
+Loads and stores read and write memory at any address. A const's name pushes its address, so consts can be used as variables.
+```
+const counter 0
+
+stackexpr main
+	41 counter !64              // counter = 41
+	counter @64 ++ counter !64  // counter = counter + 1
+	counter @64 call putI64     // 42
+end
+```
+Writing a white-on-black "H" to the top-left corner of the VGA text screen:
+```
+72 0x0f00 or 0xb8000 !16
+```
 
 ### Conditionals
 ```

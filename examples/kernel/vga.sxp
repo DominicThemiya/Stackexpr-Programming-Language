@@ -1,0 +1,16 @@
+// A freestanding kernel entry that writes "Hi" to the VGA text buffer and halts.
+// Needs to be booted in VGA text mode with 0xB8000 identity-mapped.
+//
+//   ./build/stackexpr examples/kernel/vga.sxp --freestanding --entry kmain \
+//       -T examples/kernel/linker.ld
+
+stackexpr vga_put    // char index --   (white on black)
+	2 * 0xb8000 +
+	swap 0x0f00 or
+	swap !16
+end
+
+stackexpr main
+	72 0 call vga_put    // 'H'
+	105 1 call vga_put   // 'i'
+end

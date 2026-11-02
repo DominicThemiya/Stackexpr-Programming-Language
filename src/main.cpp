@@ -3,6 +3,7 @@
 //   stackexpr program.sxp            compile, assemble and link ./program
 //   stackexpr program.sxp -o app     choose the output executable
 //   stackexpr program.sxp -S         write program.asm only (no nasm/ld needed)
+//   stackexpr kernel.sxp --freestanding -T linker.ld --format bin
 
 #include "codegen.hpp"
 #include "lexer.hpp"
@@ -11,6 +12,7 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
+#include <cctype>
 #include <cerrno>
 #include <cstdlib>
 #include <cstring>
@@ -26,13 +28,20 @@ namespace fs = std::filesystem;
 namespace {
 
 void usage(std::ostream& os) {
-    os << "usage: stackexpr <file> [-o <output>] [-S] [--keep-asm] [-L <lib-dir>]\n"
+    os << "usage: stackexpr <file> [options]\n"
           "\n"
-          "  -o <output>    output path (default: input name without extension)\n"
-          "  -S             only generate assembly (<output>.asm)\n"
-          "  --keep-asm     keep the generated .asm next to the executable\n"
-          "  -L <lib-dir>   directory holding asm libraries for 'grab asm<...>'\n"
-          "                 (default: $STACKEXPR_LIB, else <exe-dir>/../lib or <exe-dir>/lib)\n";
+          "  -o <output>        output path (default: input name without extension)\n"
+          "  -S                 only generate assembly (<output>.asm)\n"
+          "  --keep-asm         keep the generated .asm next to the output\n"
+          "  -L <lib-dir>       directory holding asm libraries for 'grab asm<...>'\n"
+          "                     (default: $STACKEXPR_LIB, else <exe-dir>/../lib or <exe-dir>/lib)\n"
+          "\n"
+          "freestanding (kernels, boot code):\n"
+          "  --freestanding     assume no OS: halt when main ends instead of calling exit\n"
+          "  --entry <symbol>   name of the entry symbol (default: _start)\n"
+          "  -T <script>        link with this linker script\n"
+          "  --base <address>   load address of the text segment, e.g. 0x100000\n"
+          "  --format elf|bin   output an ELF file (default) or a flat binary\n";
 }
 
 fs::path default_lib_dir() {
@@ -73,8 +82,9 @@ int run(const std::vector<std::string>& argv) {
 }  // namespace
 
 int main(int argc, char** argv) {
-    std::string input, output, lib_arg;
+    std::string input, output, lib_arg, linker_script, base, format = "elf";
     bool asm_only = false, keep_asm = false;
+    stackexpr::CodegenOptions codegen;
 
     for (int i = 1; i < argc; ++i) {
         std::string a = argv[i];
@@ -85,6 +95,16 @@ int main(int argc, char** argv) {
             output = argv[++i];
         } else if (a == "-L" && i + 1 < argc) {
             lib_arg = argv[++i];
+        } else if (a == "--freestanding") {
+            codegen.freestanding = true;
+        } else if (a == "--entry" && i + 1 < argc) {
+            codegen.entry = argv[++i];
+        } else if (a == "-T" && i + 1 < argc) {
+            linker_script = argv[++i];
+        } else if (a == "--base" && i + 1 < argc) {
+            base = argv[++i];
+        } else if (a == "--format" && i + 1 < argc) {
+            format = argv[++i];
         } else if (a == "-S") {
             asm_only = true;
         } else if (a == "--keep-asm") {
@@ -102,6 +122,21 @@ int main(int argc, char** argv) {
     }
     if (input.empty()) {
         usage(std::cerr);
+        return 2;
+    }
+    if (format != "elf" && format != "bin") {
+        std::cerr << "stackexpr: --format must be 'elf' or 'bin'\n";
+        return 2;
+    }
+    auto is_symbol = [](const std::string& s) {
+        if (s.empty() || std::isdigit(static_cast<unsigned char>(s[0]))) return false;
+        for (char c : s) {
+            if (!std::isalnum(static_cast<unsigned char>(c)) && c != '_' && c != '.') return false;
+        }
+        return true;
+    };
+    if (!is_symbol(codegen.entry)) {
+        std::cerr << "stackexpr: invalid entry symbol '" << codegen.entry << "'\n";
         return 2;
     }
 
@@ -130,7 +165,7 @@ int main(int argc, char** argv) {
                                                            lib_dir.string());
             }
         }
-        assembly = stackexpr::generate(prog);
+        assembly = stackexpr::generate(prog, codegen);
     } catch (const stackexpr::CompileError& e) {
         std::cerr << input << ":" << e.loc.line << ":" << e.loc.column << ": error: " << e.what() << '\n';
         return 1;
@@ -151,7 +186,17 @@ int main(int argc, char** argv) {
     if (include_dir.empty() || include_dir.back() != '/') include_dir += '/';
 
     int rc = run({"nasm", "-felf64", "-i", include_dir, asm_path.string(), "-o", obj_path.string()});
-    if (rc == 0) rc = run({"ld", obj_path.string(), "-o", out_path.string()});
+    if (rc == 0) {
+        std::vector<std::string> ld = {"ld", "-static", "-z", "noexecstack", "-e", codegen.entry};
+        if (codegen.freestanding) {
+            ld.insert(ld.end(), {"-nostdlib", "-z", "max-page-size=0x1000"});
+        }
+        if (!linker_script.empty()) ld.insert(ld.end(), {"-T", linker_script});
+        if (!base.empty()) ld.push_back("-Ttext-segment=" + base);
+        if (format == "bin") ld.insert(ld.end(), {"--oformat", "binary"});
+        ld.insert(ld.end(), {obj_path.string(), "-o", out_path.string()});
+        rc = run(ld);
+    }
 
     std::error_code ec;
     fs::remove(obj_path, ec);

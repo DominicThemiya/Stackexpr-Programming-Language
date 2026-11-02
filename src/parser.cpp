@@ -162,8 +162,9 @@ private:
 
         std::uint64_t magnitude = 0;
         auto [end, ec] = std::from_chars(text.data() + start, text.data() + text.size(), magnitude, base);
-        const std::uint64_t limit = negative ? (std::uint64_t{1} << 63) : (std::uint64_t{1} << 63) - 1;
-        if (ec != std::errc() || end != text.data() + text.size() || magnitude > limit) {
+        // Positive literals may use the full unsigned range (addresses such as 0xffffffff80000000).
+        const bool too_negative = negative && magnitude > (std::uint64_t{1} << 63);
+        if (ec != std::errc() || end != text.data() + text.size() || too_negative) {
             throw CompileError(loc_of(t), "integer literal '" + std::string(t.text) + "' does not fit in 64 bits");
         }
         return negative ? static_cast<std::int64_t>(0 - magnitude) : static_cast<std::int64_t>(magnitude);
@@ -208,6 +209,28 @@ private:
             case Tok::Dup: advance(); return simple(OpKind::Dup, t);
             case Tok::Swap: advance(); return simple(OpKind::Swap, t);
             case Tok::Drop: advance(); return simple(OpKind::Drop, t);
+            case Tok::Mod: advance(); return simple(OpKind::Mod, t);
+            case Tok::UDiv: advance(); return simple(OpKind::UDiv, t);
+            case Tok::UMod: advance(); return simple(OpKind::UMod, t);
+            case Tok::ULt: advance(); return simple(OpKind::ULt, t);
+            case Tok::UGt: advance(); return simple(OpKind::UGt, t);
+            case Tok::ULe: advance(); return simple(OpKind::ULe, t);
+            case Tok::UGe: advance(); return simple(OpKind::UGe, t);
+            case Tok::And: advance(); return simple(OpKind::And, t);
+            case Tok::Or: advance(); return simple(OpKind::Or, t);
+            case Tok::Xor: advance(); return simple(OpKind::Xor, t);
+            case Tok::Not: advance(); return simple(OpKind::Not, t);
+            case Tok::Shl: advance(); return simple(OpKind::Shl, t);
+            case Tok::Shr: advance(); return simple(OpKind::Shr, t);
+            case Tok::Sar: advance(); return simple(OpKind::Sar, t);
+            case Tok::Load8: advance(); return simple(OpKind::Load8, t);
+            case Tok::Load16: advance(); return simple(OpKind::Load16, t);
+            case Tok::Load32: advance(); return simple(OpKind::Load32, t);
+            case Tok::Load64: advance(); return simple(OpKind::Load64, t);
+            case Tok::Store8: advance(); return simple(OpKind::Store8, t);
+            case Tok::Store16: advance(); return simple(OpKind::Store16, t);
+            case Tok::Store32: advance(); return simple(OpKind::Store32, t);
+            case Tok::Store64: advance(); return simple(OpKind::Store64, t);
 
             case Tok::Call: {
                 advance();

@@ -1,0 +1,25 @@
+grab asm<io>
+grab asm<linux64>
+
+const cell 0
+const bytes "ABCD"
+
+stackexpr main
+	1234 cell !64
+	cell @64 call putI64          // 1234
+
+	bytes @8 call putI64          // 65    ('A')
+	bytes @16 call putI64         // 16961 (0x4241)
+	bytes @32 call putI64         // 1145258561 (0x44434241)
+	bytes 2 + @8 call putI64      // 67    ('C', address arithmetic)
+
+	-1 cell !64
+	cell @32 call putI64          // 4294967295 (loads zero-extend)
+
+	// Overwrite the string with "OK\n" and print it.
+	79 bytes !8
+	75 bytes 1 + !8
+	10 bytes 2 + !8
+	0 bytes 3 + !8
+	invoke "putS bytes"
+end
