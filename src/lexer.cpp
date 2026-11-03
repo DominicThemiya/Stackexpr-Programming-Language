@@ -29,7 +29,6 @@ static lexengine::LangDef<Tok> build_language() {
         .keyword("let", Tok::Let)
         .keyword("in", Tok::In)
         .keyword("set", Tok::Set)
-        .keyword("as", Tok::As)
         .keyword("execute", Tok::Execute)
         .keyword("invoke", Tok::Invoke)
         .keyword("true", Tok::True)
@@ -43,7 +42,8 @@ static lexengine::LangDef<Tok> build_language() {
         .symbol(")", Tok::RParen)
         .symbol("--", Tok::DashDash)
         .symbol(":", Tok::Colon)
-        .symbol("&", Tok::Amp);
+        .symbol("&", Tok::Amp)
+        .symbol("~", Tok::Tilde);
 
     // Identifiers may contain '.', so struct fields read as `Point.x`.
     lexengine::LangDef<Tok>::IdentifierRule ident{Tok::Ident};
@@ -96,7 +96,6 @@ const char* describe(Tok t) {
         case Tok::Let: return "'let'";
         case Tok::In: return "'in'";
         case Tok::Set: return "'set'";
-        case Tok::As: return "'as'";
         case Tok::Execute: return "'execute'";
         case Tok::Invoke: return "'invoke'";
         case Tok::True: return "'true'";
@@ -111,6 +110,7 @@ const char* describe(Tok t) {
         case Tok::DashDash: return "'--'";
         case Tok::Colon: return "':'";
         case Tok::Amp: return "'&'";
+        case Tok::Tilde: return "'~'";
         case Tok::Eof: return "end of file";
         case Tok::Error: return "invalid input";
     }

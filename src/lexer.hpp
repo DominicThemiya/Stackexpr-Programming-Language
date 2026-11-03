@@ -12,14 +12,14 @@ enum class Tok {
     Grab, StackExpr, Inline, Interrupt, Extern, End, Call,
     If, Else, While, Do, Break, Continue, Return,
     Const, Var, Data, Reserve, Struct, Sizeof,
-    Let, In, Set, As, Execute, Invoke, True, False,
+    Let, In, Set, Execute, Invoke, True, False,
     // Literals and names. Built-in words such as `dup` and `outb` are identifiers;
     // the parser recognises them by name.
     Ident, Int, Float, String,
     // Operator symbols: + - * / ++ == != < > <= >= @8..@64 !8..!64
     Op,
     // Punctuation
-    LParen, RParen, DashDash, Colon, Amp,
+    LParen, RParen, DashDash, Colon, Amp, Tilde,
     // Control
     Eof, Error,
 };

@@ -48,7 +48,7 @@ enum class OpKind {
     Call,      // text
     Execute,   // sig: call through an address on the stack
     Asm,       // text, sig: raw assembly from `invoke "..."`
-    As,        // type
+    As,        // type: a conversion such as ~ptr
     If,        // body, else_body
     While,     // cond, body
     Break, Continue, Return,

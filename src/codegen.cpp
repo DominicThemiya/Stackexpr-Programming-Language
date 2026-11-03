@@ -327,7 +327,7 @@ private:
             case OpKind::Execute: simple("execute", {"pop rax", "call rax"}); return;
             case OpKind::Asm: comment("invoke"); line(op.text); return;
             case OpKind::As:
-                comment("as " + to_string(op.type));
+                comment(op.text);
                 if (op.overload == 1) {  // normalise to 0 or 1
                     line("pop rax");
                     line("test rax, rax");

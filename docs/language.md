@@ -44,7 +44,7 @@ Every value on the stack has one of three types:
 | --- | --- | --- |
 | `int` | 64-bit integers | literals, arithmetic, loads from memory |
 | `bool` | true or false | `true`, `false`, comparisons |
-| `ptr` | memory addresses | variables, buffers, strings, `&name`, `as ptr` |
+| `ptr` | memory addresses | variables, buffers, strings, `&name`, `~ptr` |
 
 A **stack effect** says what a stack expression takes from the top of the stack and what it leaves in their place:
 
@@ -95,15 +95,24 @@ half.sxp:1:11: error: stackexpr 'half' is declared (int -- int) but leaves (int 
 
 ### Converting between types
 
-`as <type>` changes the type of the top value without changing its bits:
+`~int`, `~bool` and `~ptr` change the type of the top value. Nothing happens at run time; they only tell the type checker to treat the value differently from then on:
 
 ```
-0xb8000 as ptr        // an address from a number
-buffer as int 12 shr  // a number from an address
-x 0 != as int         // 1 or 0 from a bool
+0xb8000 ~ptr          // an address from a number
+buffer ~int 12 shr    // a number from an address
+x 0 != ~int           // 1 or 0 from a bool
 ```
 
-`as bool` turns 0 into `false` and anything else into `true`. Conversions are the deliberate escape hatch from type checking, so use them only where you mean it.
+The type name goes right after the `~`, with no space. `~bool` is the one conversion that does some work: it turns 0 into `false` and anything else into `true`.
+
+Conversions are the deliberate escape hatch from type checking, so use them only where you mean it. You need one when a value's real meaning differs from the type it was given:
+
+| Situation | Example |
+| --- | --- |
+| A number that is really an address, such as a hardware address | `0xb8000 ~ptr` |
+| An address you take apart as a number | `handler ~int 16 shr` |
+| An address read back from memory (loads always give an `int`) | `slot @64 ~ptr` |
+| A `bool` passed where an `int` is expected, such as to `putI64` | `-1 1 < ~int call putI64` |
 
 ## Stack expressions
 
@@ -203,10 +212,10 @@ Strings can use `"..."` or `'...'`, and support escapes such as `\n`, `\t` and `
 ```
 const PAGE_SIZE 4096
 const DEBUG true
-const VGA 0xb8000 as ptr
+const VGA 0xb8000 ~ptr
 ```
 
-A constant is an `int` unless it is `true`/`false` (a `bool`) or has `as <type>` after its value.
+A constant is an `int` unless it is `true`/`false` (a `bool`) or has a conversion such as `~ptr` after its value.
 
 ## Operations
 
@@ -277,7 +286,7 @@ For anything more involved, [locals](#locals) are clearer than stack shuffling.
 | `@8` `@16` `@32` `@64` | `ptr -- int` | Read 1, 2, 4 or 8 bytes. Smaller reads are zero-extended. |
 | `!8` `!16` `!32` `!64` | `a ptr --` | Write the low 1, 2, 4 or 8 bytes of a value of any type |
 
-Loads always give an `int`. To read a stored address back, convert it: `slot @64 as ptr`.
+Loads always give an `int`. To read a stored address back, convert it: `slot @64 ~ptr`.
 
 ## Locals
 
@@ -531,7 +540,7 @@ Keywords:
 ```
 grab stackexpr inline interrupt extern end call
 if else while do break continue return
-const var data reserve struct sizeof let in set as execute invoke true false
+const var data reserve struct sizeof let in set execute invoke true false
 ```
 
 Built-in words, which can't be used as names:

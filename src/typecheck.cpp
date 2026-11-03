@@ -304,7 +304,7 @@ private:
                 return apply(op.sig, s, op.loc, "'invoke'");
 
             case OpKind::As: {
-                if (s.empty()) throw CompileError(op.loc, "'as " + to_string(op.type) + "' needs a value on the stack");
+                if (s.empty()) throw CompileError(op.loc, q(op.text) + " needs a value on the stack");
                 // Converting a non-bool to bool normalises it to 0 or 1.
                 op.overload = op.type == Type::bool_() && s.back() != Type::bool_() ? 1 : 0;
                 s.back() = op.type;
@@ -314,7 +314,7 @@ private:
             case OpKind::If: {
                 if (s.empty() || s.back() != Type::bool_()) {
                     throw CompileError(op.loc, "'if' expects a bool on top of the stack, but found " + show(top(s, 1)) +
-                                                   "; compare first (e.g. '0 !=') or convert with 'as bool'");
+                                                   "; compare first (e.g. '0 !=') or convert with '~bool'");
                 }
                 s.pop_back();
                 std::optional<Stack> then_end = check_block(op.body, s);

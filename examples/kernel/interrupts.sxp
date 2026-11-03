@@ -43,12 +43,12 @@ stackexpr set_gate (handler: ptr vector: int --)
 	let handler vector in
 		vector sizeof IdtEntry * idt +
 		let e in
-			handler as int 0xffff and           e IdtEntry.offset_low !16
+			handler ~int 0xffff and           e IdtEntry.offset_low !16
 			KERNEL_CODE                         e IdtEntry.selector !16
 			0                                   e IdtEntry.ist !8
 			INTERRUPT_GATE                      e IdtEntry.flags !8
-			handler as int 16 shr 0xffff and    e IdtEntry.offset_mid !16
-			handler as int 32 shr               e IdtEntry.offset_high !32
+			handler ~int 16 shr 0xffff and    e IdtEntry.offset_mid !16
+			handler ~int 32 shr               e IdtEntry.offset_high !32
 			0                                   e IdtEntry.reserved !32
 		end
 	end

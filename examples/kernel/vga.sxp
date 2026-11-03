@@ -5,7 +5,7 @@
 
 grab asm<multiboot>
 
-const VGA 0xb8000 as ptr     // the text screen: 80x25 cells of (character, colour)
+const VGA 0xb8000 ~ptr     // the text screen: 80x25 cells of (character, colour)
 const WHITE_ON_BLACK 0x0f00
 
 stackexpr vga_put (char: int index: int --)

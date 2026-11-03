@@ -214,9 +214,10 @@ private:
             def.value = parse_int_literal("for const '" + def.name + "'");
             def.type = Type::int_();
         }
-        if (peek().type == Tok::As) {
-            advance();
-            def.type = parse_concrete_type();
+        if (peek().type == Tok::Tilde) {
+            def.type = parse_conversion(advance());
+        } else if (peek().type == Tok::Ident && peek().text == "as") {
+            throw old_as_error(peek());
         }
         std::string key = def.name;
         prog_.consts.emplace(std::move(key), std::move(def));
@@ -309,9 +310,21 @@ private:
                            (allow_var ? ", and a single letter such as 'a' stands for any type" : ""));
     }
 
-    Type parse_concrete_type() {
-        const Token& t = expect(Tok::Ident, "as a type (int, bool or ptr)");
-        return parse_type_name(t, false);
+    // `~ptr`: the type name must follow the `~` directly.
+    Type parse_conversion(const Token& tilde) {
+        const Token& name = peek();
+        if (name.type != Tok::Ident || name.offset != tilde.offset + 1) {
+            throw error(tilde, "expected a type right after '~': ~int, ~bool or ~ptr");
+        }
+        advance();
+        return parse_type_name(name, false);
+    }
+
+    // Conversions used to be written `as ptr`.
+    CompileError old_as_error(const Token& as) const {
+        const Token& next = peek(1);
+        std::string type = next.type == Tok::Ident ? std::string(next.text) : "ptr";
+        return error(as, "conversions are written ~" + type + " (no space), not 'as " + type + "'");
     }
 
     // ( [name:] type ... -- [name:] type ... )
@@ -428,6 +441,10 @@ private:
                 return op;
             }
             case Tok::Ident: {
+                if (t.text == "as" && peek(1).type == Tok::Ident &&
+                    (peek(1).text == "int" || peek(1).text == "bool" || peek(1).text == "ptr")) {
+                    throw old_as_error(t);
+                }
                 advance();
                 auto builtin = builtin_words().find(std::string(t.text));
                 return make(builtin != builtin_words().end() ? builtin->second : OpKind::Name, t);
@@ -474,10 +491,11 @@ private:
                 if (peek().type == Tok::LParen) op.sig = parse_signature();
                 return op;
             }
-            case Tok::As: {
+            case Tok::Tilde: {
                 advance();
                 Op op = make(OpKind::As, t);
-                op.type = parse_concrete_type();
+                op.type = parse_conversion(t);
+                op.text = "~" + to_string(op.type);
                 return op;
             }
             case Tok::If: {

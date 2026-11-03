@@ -25,7 +25,7 @@ Here is `vga.sxp`:
 ```
 grab asm<multiboot>
 
-const VGA 0xb8000 as ptr     // the text screen: 80x25 cells of (character, colour)
+const VGA 0xb8000 ~ptr     // the text screen: 80x25 cells of (character, colour)
 const WHITE_ON_BLACK 0x0f00
 
 stackexpr vga_put (char: int index: int --)
@@ -201,4 +201,4 @@ This route isn't covered by the test suite yet; booting through QEMU's `-kernel`
 - **Flat binaries have no `.bss`.** `reserve` buffers, the return stack and the boot stub's page tables live there. Whatever loads a flat binary must provide that memory, zeroed; Multiboot loaders do this using the header.
 - **The return stack is a fixed 64 KiB.** Deep recursion overflows it without any check.
 - **No user mode yet.** Everything runs in ring 0, and there are no words for system calls, task state segments or switching privilege levels.
-- **Types don't follow memory.** Loads always give an `int`, so a pointer read back from memory needs `as ptr`, and the compiler can't check what's stored where.
+- **Types don't follow memory.** Loads always give an `int`, so a pointer read back from memory needs `~ptr`, and the compiler can't check what's stored where.
