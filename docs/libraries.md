@@ -17,6 +17,7 @@ Needs `asm<linux64>` as well.
 | --- | --- | --- |
 | `call putI64` | `n: int --` | Prints a signed integer, followed by a newline |
 | `call putStr` | `s: ptr --` | Prints the 0-terminated string at an address, such as a `data` or a string literal |
+| `call putBool` | `b: bool --` | Prints `true` or `false`, followed by a newline |
 
 ```
 grab asm<io>
@@ -28,6 +29,7 @@ stackexpr main
 	greeting call putStr
 	"world\n" call putStr
 	-42 call putI64
+	3 5 < call putBool
 end
 ```
 

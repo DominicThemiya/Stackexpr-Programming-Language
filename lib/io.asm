@@ -102,3 +102,24 @@ print_signed_int64_negative:
     mov rdi, STDOUT
     syscall
 %endmacro
+
+; input: a bool on the stack (0 or 1)
+; output: prints "true" or "false", followed by a newline
+%macro putBool 0
+    pop rax
+    test rax, rax
+    lea rsi, [_io_false_str]
+    mov rdx, 6
+    jz %%print
+    lea rsi, [_io_true_str]
+    mov rdx, 5
+%%print:
+    mov rax, SYS_WRITE
+    mov rdi, STDOUT
+    syscall
+%endmacro
+
+section .rodata
+_io_true_str:  db "true", 10
+_io_false_str: db "false", 10
+section .text

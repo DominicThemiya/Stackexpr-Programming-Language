@@ -112,7 +112,7 @@ Conversions are the deliberate escape hatch from type checking, so use them only
 | A number that is really an address, such as a hardware address | `0xb8000 ~ptr` |
 | An address you take apart as a number | `handler ~int 16 shr` |
 | An address read back from memory (loads always give an `int`) | `slot @64 ~ptr` |
-| A `bool` passed where an `int` is expected, such as to `putI64` | `-1 1 < ~int call putI64` |
+| A `bool` used as a number (to print one, `putBool` needs no conversion) | `ready ~int 2 *` |
 
 ## Stack expressions
 

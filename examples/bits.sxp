@@ -12,11 +12,11 @@ stackexpr main
 	-16 2 sar call putI64         // -4 (arithmetic)
 
 	// Signed vs unsigned
-	-1 1 < ~int call putI64            // 1
-	-1 1 ult ~int call putI64          // 0 (-1 is the largest unsigned value)
-	-1 0 ugt ~int call putI64          // 1
-	7 7 ule ~int call putI64           // 1
-	7 7 uge ~int call putI64           // 1
+	-1 1 < call putBool            // true
+	-1 1 ult call putBool          // false (-1 is the largest unsigned value)
+	-1 0 ugt call putBool          // true
+	7 7 ule call putBool           // true
+	7 7 uge call putBool           // true
 	-1 2 udiv call putI64         // 9223372036854775807
 	-17 5 mod call putI64         // -2
 	17 5 umod call putI64         // 2

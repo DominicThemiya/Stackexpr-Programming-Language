@@ -2,3 +2,4 @@
 
 extern putI64 (n: int --)      // print a signed integer and a newline
 extern putStr (s: ptr --)      // print a 0-terminated string
+extern putBool (b: bool --)    // print true or false and a newline
