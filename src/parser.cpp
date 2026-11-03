@@ -59,7 +59,7 @@ struct Grabs {
 class Parser {
 public:
     Parser(const std::vector<Token>& tokens, std::uint32_t file, Program& prog,
-           const std::vector<std::string>& files)
+           const std::vector<SourceFile>& files)
         : toks_(tokens), file_(file), prog_(prog), files_(files) {}
 
     Grabs run() {
@@ -102,7 +102,7 @@ private:
     const std::vector<Token>& toks_;
     std::uint32_t file_;
     Program& prog_;
-    const std::vector<std::string>& files_;
+    const std::vector<SourceFile>& files_;
     std::size_t pos_ = 0;
 
     CompileError error(const Token& t, const std::string& msg) const { return CompileError(loc_of(file_, t), msg); }
@@ -137,7 +137,7 @@ private:
         }
         auto [it, inserted] = prog_.names.emplace(name, loc);
         if (!inserted) {
-            throw CompileError(loc, "'" + name + "' is already defined at " + files_[it->second.file] + ":" +
+            throw CompileError(loc, "'" + name + "' is already defined at " + files_[it->second.file].path + ":" +
                                         std::to_string(it->second.line));
         }
     }
@@ -252,11 +252,22 @@ private:
         add_global(std::move(def));
     }
 
+    // reserve NAME COUNT [TYPE] [align N]; COUNT is a number or a const name.
     void parse_reserve() {
         GlobalDef def = start_global(GlobalKind::Reserve, "reserve");
-        const Token& size_tok = peek();
-        def.size = parse_int_literal("as the size in bytes");
-        if (def.size <= 0) throw error(size_tok, "reserve size must be positive");
+        const Token& count_tok = peek();
+        def.count_loc = loc_of(file_, count_tok);
+        if (count_tok.type == Tok::Ident) {
+            def.count_name = std::string(advance().text);
+        } else {
+            def.count = parse_int_literal("as the size in bytes, or the number of elements");
+            if (def.count <= 0) throw error(count_tok, "reserve size must be positive");
+        }
+        if (peek().type == Tok::Ident && peek().text != "align") {
+            const Token& type = advance();
+            def.elem_type = std::string(type.text);
+            def.elem_loc = loc_of(file_, type);
+        }
         def.align = 8;
         if (peek().type == Tok::Ident && peek().text == "align") {
             advance();
@@ -371,7 +382,40 @@ private:
         }
     }
 
+    // 'A' is 65. Supports the escapes \n \t \r \0 \e \\ \' \" and \xHH.
+    std::int64_t parse_char_literal() {
+        const Token& t = advance();
+        std::string_view body = t.text.substr(1, t.text.size() - 2);
+        auto bad = [&](const std::string& why) {
+            return error(t, why + "; a character literal holds one byte, such as 'A' or '\\n' (use \"...\" for strings)");
+        };
+        if (body.empty()) throw bad("empty character literal");
+        if (body[0] != '\\') {
+            if (body.size() != 1) throw bad("more than one character in " + std::string(t.text));
+            return static_cast<unsigned char>(body[0]);
+        }
+        if (body.size() == 2) {
+            switch (body[1]) {
+                case 'n': return '\n';
+                case 't': return '\t';
+                case 'r': return '\r';
+                case '0': return 0;
+                case 'e': return 27;
+                case '\\': return '\\';
+                case '\'': return '\'';
+                case '"': return '"';
+            }
+        }
+        if (body.size() == 4 && body[1] == 'x') {
+            int value = 0;
+            auto [end, ec] = std::from_chars(body.data() + 2, body.data() + 4, value, 16);
+            if (ec == std::errc() && end == body.data() + 4) return value;
+        }
+        throw bad("unknown escape " + std::string(t.text));
+    }
+
     std::int64_t parse_int_literal(const std::string& context) {
+        if (peek().type == Tok::Char) return parse_char_literal();
         bool negative = false;
         if (peek_op("-")) {
             const Token& minus = advance();
@@ -412,7 +456,8 @@ private:
     Op parse_op() {
         const Token& t = peek();
         switch (t.type) {
-            case Tok::Int: {
+            case Tok::Int:
+            case Tok::Char: {
                 Op op = make(OpKind::PushInt, t);
                 op.value = parse_int_literal("");
                 return op;
@@ -446,6 +491,10 @@ private:
                     throw old_as_error(t);
                 }
                 advance();
+                if (peek().type == Tok::Brackets && peek().offset == t.offset + t.text.size()) {
+                    advance();
+                    return make(OpKind::Index, t);  // name[]: the address of an element
+                }
                 auto builtin = builtin_words().find(std::string(t.text));
                 return make(builtin != builtin_words().end() ? builtin->second : OpKind::Name, t);
             }
@@ -467,6 +516,15 @@ private:
                 op.text = std::string(name.text);
                 return op;
             }
+            case Tok::Lengthof: {
+                advance();
+                const Token& name = expect(Tok::Ident, "after 'lengthof' (an array name)");
+                Op op = make(OpKind::LengthOf, t);
+                op.text = std::string(name.text);
+                return op;
+            }
+            case Tok::Brackets:
+                throw error(t, "'[]' must follow an array name directly, as in: index buffer[]");
             case Tok::Call: {
                 advance();
                 const Token& name = expect(Tok::Ident, "after 'call'");
@@ -578,7 +636,7 @@ private:
 
 class Loader {
 public:
-    Loader(Program& prog, fs::path lib_dir, std::vector<std::string>& files)
+    Loader(Program& prog, fs::path lib_dir, std::vector<SourceFile>& files)
         : prog_(prog), lib_dir_(std::move(lib_dir)), files_(files) {}
 
     void load_file(const fs::path& path, const Loc* from) {
@@ -594,10 +652,12 @@ public:
         }
         std::stringstream buf;
         buf << in.rdbuf();
-        const std::string source = buf.str();
 
-        files_.push_back(path.string());
+        files_.push_back({path.string(), buf.str()});
         auto index = static_cast<std::uint32_t>(files_.size() - 1);
+        // Copy the text: files_ may reallocate while grabs are loaded, and the tokens
+        // point into it only for the duration of this parse.
+        const std::string source = files_.back().text;
         std::vector<Token> tokens = lex(source);
         Grabs grabs = Parser(tokens, index, prog_, files_).run();
 
@@ -608,7 +668,7 @@ public:
 private:
     Program& prog_;
     fs::path lib_dir_;
-    std::vector<std::string>& files_;
+    std::vector<SourceFile>& files_;
     std::set<std::string> loaded_;
     std::set<std::string> asm_loaded_;
 
@@ -625,7 +685,7 @@ private:
 
 }  // namespace
 
-Program load_program(const std::string& path, const fs::path& lib_dir, std::vector<std::string>& files) {
+Program load_program(const std::string& path, const fs::path& lib_dir, std::vector<SourceFile>& files) {
     Program prog;
     Loader(prog, lib_dir, files).load_file(path, nullptr);
     if (prog.stackexprs.find("main") == prog.stackexprs.end()) {

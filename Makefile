@@ -9,7 +9,9 @@ HEADERS := $(wildcard src/*.hpp) $(wildcard third_party/LexEngine/*.hpp)
 KERNEL ?= examples/kernel/vga
 KERNEL_FLAGS := --freestanding --entry kmain -T lib/multiboot.ld
 
-.PHONY: all test clean kernel run-kernel
+.PHONY: all test clean kernel run-kernel install-vim
+
+VIM_DIR ?= $(HOME)/.vim
 
 all: build/stackexpr
 
@@ -28,6 +30,13 @@ kernel: build/stackexpr
 # Close the window (or Ctrl+C) to quit. Pick another kernel with KERNEL=examples/kernel/<name>.
 run-kernel: kernel
 	qemu-system-x86_64 -kernel build/kernel -debugcon stdio
+
+# Installs syntax highlighting into Vim (or Neovim with VIM_DIR=~/.config/nvim).
+install-vim:
+	mkdir -p $(VIM_DIR)/syntax $(VIM_DIR)/ftdetect $(VIM_DIR)/ftplugin
+	cp editors/vim/syntax/stackexpr.vim $(VIM_DIR)/syntax/
+	cp editors/vim/ftdetect/stackexpr.vim $(VIM_DIR)/ftdetect/
+	cp editors/vim/ftplugin/stackexpr.vim $(VIM_DIR)/ftplugin/
 
 clean:
 	rm -rf build

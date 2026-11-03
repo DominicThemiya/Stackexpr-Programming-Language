@@ -199,6 +199,7 @@ This route isn't covered by the test suite yet; booting through QEMU's `-kernel`
 ## Limitations
 
 - **Flat binaries have no `.bss`.** `reserve` buffers, the return stack and the boot stub's page tables live there. Whatever loads a flat binary must provide that memory, zeroed; Multiboot loaders do this using the header.
-- **The return stack is a fixed 64 KiB.** Deep recursion overflows it without any check.
+- **The return stack is a fixed 64 KiB.** Recursion deeper than that stops the kernel with a message on the debug console, unless it was built with `--no-checks`. The data stack (`rsp`) is not checked.
+- **Failed checks go to port `0xe9`.** That is QEMU's debug console. On real hardware the port is normally unused, so the message is lost, but the kernel still halts.
 - **No user mode yet.** Everything runs in ring 0, and there are no words for system calls, task state segments or switching privilege levels.
 - **Types don't follow memory.** Loads always give an `int`, so a pointer read back from memory needs `~ptr`, and the compiler can't check what's stored where.

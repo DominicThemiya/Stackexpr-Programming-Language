@@ -6,6 +6,7 @@
 //   stackexpr kernel.sxp --freestanding -T linker.ld --format bin
 
 #include "codegen.hpp"
+#include "optimize.hpp"
 #include "parser.hpp"
 #include "typecheck.hpp"
 
@@ -41,7 +42,59 @@ void usage(std::ostream& os) {
           "  --entry <symbol>   name of the entry symbol (default: _start)\n"
           "  -T <script>        link with this linker script\n"
           "  --base <address>   load address of the text segment, e.g. 0x100000\n"
-          "  --format elf|bin   output an ELF file (default) or a flat binary\n";
+          "  --format elf|bin   output an ELF file (default) or a flat binary\n"
+          "\n"
+          "code generation:\n"
+          "  --no-checks        leave out run-time checks (return stack overflow, array bounds)\n"
+          "  --no-optimize      leave out the peephole optimiser\n";
+}
+
+// Colour only when writing to a terminal, and never when NO_COLOR is set.
+bool use_colour() {
+    static const bool colour = isatty(STDERR_FILENO) && !std::getenv("NO_COLOR");
+    return colour;
+}
+
+const char* paint(const char* code) { return use_colour() ? code : ""; }
+
+// The text of line `n` (1-based) of `text`, without its newline.
+std::string line_of(const std::string& text, std::size_t n) {
+    std::size_t start = 0;
+    for (std::size_t i = 1; i < n; ++i) {
+        start = text.find('\n', start);
+        if (start == std::string::npos) return {};
+        ++start;
+    }
+    std::size_t end = text.find('\n', start);
+    std::string line = text.substr(start, end == std::string::npos ? std::string::npos : end - start);
+    if (!line.empty() && line.back() == '\r') line.pop_back();
+    return line;
+}
+
+// file:line:col: error: message
+//    4 |     true 1 +
+//      |            ^
+void report(const stackexpr::CompileError& e, const std::vector<stackexpr::SourceFile>& files,
+            const std::string& input) {
+    const std::string& path = e.loc.file < files.size() ? files[e.loc.file].path : input;
+    std::cerr << paint("\033[1m") << path << ":" << e.loc.line << ":" << e.loc.column << ": " << paint("\033[31m")
+              << "error:" << paint("\033[0m") << paint("\033[1m") << " " << e.what() << paint("\033[0m") << "\n";
+    if (e.loc.file >= files.size() || e.loc.line == 0) return;
+
+    std::string line = line_of(files[e.loc.file].text, e.loc.line);
+    std::string number = std::to_string(e.loc.line);
+    std::string gutter(number.size(), ' ');
+    // Columns count UTF-8 characters; keep tabs so the caret lines up under them.
+    std::string pad;
+    std::size_t chars = 0;
+    for (std::size_t i = 0; i < line.size() && chars + 1 < e.loc.column; ++i) {
+        unsigned char c = static_cast<unsigned char>(line[i]);
+        if ((c & 0xC0) == 0x80) continue;  // continuation byte
+        pad += c == '\t' ? '\t' : ' ';
+        ++chars;
+    }
+    std::cerr << " " << number << " | " << line << "\n"
+              << " " << gutter << " | " << pad << paint("\033[1;31m") << "^" << paint("\033[0m") << "\n";
 }
 
 fs::path default_lib_dir() {
@@ -83,7 +136,7 @@ int run(const std::vector<std::string>& argv) {
 
 int main(int argc, char** argv) {
     std::string input, output, lib_arg, linker_script, base, format = "elf";
-    bool asm_only = false, keep_asm = false;
+    bool asm_only = false, keep_asm = false, optimize = true;
     stackexpr::CodegenOptions codegen;
 
     for (int i = 1; i < argc; ++i) {
@@ -105,6 +158,10 @@ int main(int argc, char** argv) {
             base = argv[++i];
         } else if (a == "--format" && i + 1 < argc) {
             format = argv[++i];
+        } else if (a == "--no-checks") {
+            codegen.checks = false;
+        } else if (a == "--no-optimize") {
+            optimize = false;
         } else if (a == "-S") {
             asm_only = true;
         } else if (a == "--keep-asm") {
@@ -152,14 +209,22 @@ int main(int argc, char** argv) {
     fs::path lib_dir = lib_arg.empty() ? default_lib_dir() : fs::path(lib_arg);
 
     std::string assembly;
-    std::vector<std::string> files;
+    std::vector<stackexpr::SourceFile> files;
     try {
         stackexpr::Program prog = stackexpr::load_program(input, lib_dir, files);
         stackexpr::typecheck(prog);
+        codegen.files = &files;
         assembly = stackexpr::generate(prog, codegen);
+        if (optimize) assembly = stackexpr::optimize(assembly);
     } catch (const stackexpr::CompileError& e) {
-        const std::string& file = e.loc.file < files.size() ? files[e.loc.file] : input;
-        std::cerr << file << ":" << e.loc.line << ":" << e.loc.column << ": error: " << e.what() << '\n';
+        report(e, files, input);
+        return 1;
+    } catch (const stackexpr::CompileErrors& e) {
+        for (std::size_t i = 0; i < e.errors.size(); ++i) {
+            if (i > 0) std::cerr << "\n";
+            report(e.errors[i], files, input);
+        }
+        if (e.errors.size() > 1) std::cerr << "\n" << e.errors.size() << " errors\n";
         return 1;
     } catch (const std::runtime_error& e) {
         std::cerr << "stackexpr: " << e.what() << '\n';

@@ -26,6 +26,7 @@ static lexengine::LangDef<Tok> build_language() {
         .keyword("reserve", Tok::Reserve)
         .keyword("struct", Tok::Struct)
         .keyword("sizeof", Tok::Sizeof)
+        .keyword("lengthof", Tok::Lengthof)
         .keyword("let", Tok::Let)
         .keyword("in", Tok::In)
         .keyword("set", Tok::Set)
@@ -43,7 +44,8 @@ static lexengine::LangDef<Tok> build_language() {
         .symbol("--", Tok::DashDash)
         .symbol(":", Tok::Colon)
         .symbol("&", Tok::Amp)
-        .symbol("~", Tok::Tilde);
+        .symbol("~", Tok::Tilde)
+        .symbol("[]", Tok::Brackets);
 
     // Identifiers may contain '.', so struct fields read as `Point.x`.
     lexengine::LangDef<Tok>::IdentifierRule ident{Tok::Ident};
@@ -52,7 +54,7 @@ static lexengine::LangDef<Tok> build_language() {
     lang.identifier(ident);
 
     lang.string_literal(Tok::String, "\"", "\"")
-        .string_literal(Tok::String, "'", "'")
+        .string_literal(Tok::Char, "'", "'")   // a single character: 'A' is 65
         .line_comment("//");
 
     lexengine::LangDef<Tok>::NumberRule numbers{Tok::Int, Tok::Float};
@@ -93,6 +95,7 @@ const char* describe(Tok t) {
         case Tok::Reserve: return "'reserve'";
         case Tok::Struct: return "'struct'";
         case Tok::Sizeof: return "'sizeof'";
+        case Tok::Lengthof: return "'lengthof'";
         case Tok::Let: return "'let'";
         case Tok::In: return "'in'";
         case Tok::Set: return "'set'";
@@ -104,6 +107,7 @@ const char* describe(Tok t) {
         case Tok::Int: return "integer";
         case Tok::Float: return "float";
         case Tok::String: return "string";
+        case Tok::Char: return "character";
         case Tok::Op: return "operator";
         case Tok::LParen: return "'('";
         case Tok::RParen: return "')'";
@@ -111,6 +115,7 @@ const char* describe(Tok t) {
         case Tok::Colon: return "':'";
         case Tok::Amp: return "'&'";
         case Tok::Tilde: return "'~'";
+        case Tok::Brackets: return "'[]'";
         case Tok::Eof: return "end of file";
         case Tok::Error: return "invalid input";
     }

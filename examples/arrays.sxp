@@ -1,0 +1,32 @@
+grab asm<io>
+grab asm<linux64>
+
+const N 5
+reserve squares N int          // an array of 5 ints
+
+struct Pair
+	first u8
+	second u8
+end
+reserve pairs 3 Pair           // an array of 3 structs
+
+stackexpr main
+	// squares[i] = i * i
+	0
+	while dup N < do
+		dup dup * over squares[] !64
+		++
+	end
+	drop
+
+	4 squares[] @64 call putI64          // 16
+	lengthof squares call putI64         // 5
+	sizeof squares call putI64           // 40
+
+	// Character literals are numbers.
+	'A' call putI64                      // 65
+	'\n' call putI64                     // 10
+	'x' 2 pairs[] Pair.second !8
+	2 pairs[] Pair.second @8 call putI64 // 120
+	sizeof pairs call putI64             // 6
+end

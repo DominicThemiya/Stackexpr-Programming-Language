@@ -30,6 +30,16 @@ std::string nasm_string(const std::string& s) {
     return r + "`";
 }
 
+// A NASM string with every byte taken literally (for compiler-made text such as paths).
+std::string nasm_literal(const std::string& s) {
+    std::string r = "`";
+    for (char c : s) {
+        if (c == '`' || c == '\\') r += '\\';
+        r += c;
+    }
+    return r + "`";
+}
+
 std::string frame_ref(std::int64_t slot) { return "qword [r15 + " + std::to_string(8 * slot) + "]"; }
 
 class Generator {
@@ -69,6 +79,7 @@ public:
             if (def.kind == ExprKind::Function) emit_function(def);
             if (def.kind == ExprKind::Interrupt) emit_interrupt(def);
         }
+        if (options_.checks) emit_check_fail();
 
         emit_data();
         return out_.str();
@@ -80,6 +91,7 @@ private:
     std::ostringstream out_;
     std::size_t next_label_ = 0;
     std::vector<std::string> strings_;
+    std::vector<std::string> messages_;  // run-time check failures, written as-is (no escapes)
     std::vector<const StackExprDef*> inlining_;  // for recursion detection
     struct Loop {
         std::string start, end;
@@ -101,12 +113,14 @@ private:
         out_ << "\n;; --- stackexpr " << def.name << " ---\n";
         label(fn_label(def.name));
         line("sub r15, " + std::to_string(8 * (n + 1)));
+        check_return_stack(def);
         line("pop " + frame_ref(n) + "          ; return address to the return stack");
         emit_block(def.body);
         label(ret_label(def.name));
         line("push " + frame_ref(n));
         line("add r15, " + std::to_string(8 * (n + 1)));
         line("ret");
+        emit_failure_stubs();
     }
 
     // Frame on the return stack: locals at [r15 + 8*i], then the saved registers.
@@ -119,6 +133,7 @@ private:
         out_ << "\n;; --- interrupt " << def.name << " ---\n";
         label(int_label(def.name));
         line("sub r15, " + std::to_string(frame));
+        check_return_stack(def);  // compares with memory, so no register is touched before saving
         for (std::int64_t i = 0; i < kSavedRegCount; ++i) {
             line("mov " + frame_ref(n + i) + ", " + kSavedRegs[i]);
         }
@@ -130,6 +145,90 @@ private:
         }
         line("add r15, " + std::to_string(frame));
         line("iretq");
+        emit_failure_stubs();
+    }
+
+    // ---- run-time checks --------------------------------------------------
+
+    struct Failure {
+        std::string label;
+        std::size_t message;
+    };
+    std::vector<Failure> failures_;  // out-of-line jumps for the current definition
+
+    std::string where(Loc loc) const {
+        std::string file = options_.files && loc.file < options_.files->size() ? (*options_.files)[loc.file].path : "?";
+        return file + ":" + std::to_string(loc.line) + ":" + std::to_string(loc.column);
+    }
+
+    // Returns the label to jump to when the check fails; its code is emitted after the
+    // definition so the common path falls straight through.
+    std::string failure(Loc loc, const std::string& what) {
+        messages_.push_back("stackexpr: " + where(loc) + ": " + what);
+        std::string lbl = new_label("fail");
+        failures_.push_back({lbl, messages_.size() - 1});
+        return lbl;
+    }
+
+    std::string check_return_stack(const StackExprDef& def) {
+        if (!options_.checks) return {};
+        std::string lbl = failure(def.loc, "return stack overflow entering '" + def.name + "' (recursion too deep?)");
+        line("cmp r15, [_sx_rstack_limit]");
+        line("jb " + lbl);
+        return lbl;
+    }
+
+    void emit_failure_stubs() {
+        for (const Failure& f : failures_) {
+            label(f.label);
+            line("lea rsi, [_sx_msg_" + std::to_string(f.message) + "]");
+            line("jmp _sx_check_fail");
+        }
+        failures_.clear();
+    }
+
+    // Prints the 0-terminated message at rsi, then stops: exit(1) on Linux, or a halt
+    // after writing to the debug console (port 0xe9) when freestanding. It uses neither
+    // stack, since either may be what overflowed.
+    void emit_check_fail() {
+        out_ << "\n;; --- failed run-time check: message in rsi ---\n";
+        label("_sx_check_fail");
+        if (options_.freestanding) {
+            label(".next");
+            line("mov al, [rsi]");
+            line("test al, al");
+            line("jz .stop");
+            line("out 0xe9, al");
+            line("inc rsi");
+            line("jmp .next");
+            label(".stop");
+            line("mov al, 10");
+            line("out 0xe9, al");
+            label(".halt");
+            line("cli");
+            line("hlt");
+            line("jmp .halt");
+        } else {
+            line("mov rdx, rsi");
+            label(".len");
+            line("cmp byte [rdx], 0");
+            line("je .write");
+            line("inc rdx");
+            line("jmp .len");
+            label(".write");
+            line("sub rdx, rsi");
+            line("mov eax, 1             ; write(2, message, length)");
+            line("mov edi, 2");
+            line("syscall");
+            line("lea rsi, [_sx_newline]");
+            line("mov edx, 1");
+            line("mov eax, 1");
+            line("mov edi, 2");
+            line("syscall");
+            line("mov eax, 60            ; exit(1)");
+            line("mov edi, 1");
+            line("syscall");
+        }
     }
 
     void emit_data() {
@@ -139,6 +238,14 @@ private:
         out_ << "\nsection .rodata\n";
         for (std::size_t i = 0; i < strings_.size(); ++i) {
             out_ << "_sx_str_" << i << ": db " << nasm_string(strings_[i]) << ", 0\n";
+        }
+        for (std::size_t i = 0; i < messages_.size(); ++i) {
+            out_ << "_sx_msg_" << i << ": db " << nasm_literal(messages_[i]) << ", 0\n";
+        }
+        if (options_.checks) {
+            out_ << "_sx_newline: db 10\n"
+                 << "align 8\n"
+                 << "_sx_rstack_limit: dq _sx_rstack\n";
         }
 
         out_ << "\nsection .data\n";
@@ -254,6 +361,24 @@ private:
                 return;
             }
             case OpKind::SizeOf: push_value(op.value, "sizeof " + op.text); return;
+            case OpKind::LengthOf: push_value(op.value, "lengthof " + op.text); return;
+            case OpKind::Index: {
+                comment(op.text + "[]");
+                line("pop rax");
+                if (options_.checks && !op.checked) {
+                    std::string fail = failure(op.loc, "index out of bounds for '" + op.text + "' (" +
+                                                           std::to_string(op.count) + " elements)");
+                    line("mov rbx, " + std::to_string(op.count));
+                    line("cmp rax, rbx");
+                    line("jae " + fail);
+                }
+                line("mov rbx, " + std::to_string(op.value));
+                line("imul rax, rbx");
+                line("lea rbx, [" + global_label(op.text) + "]");
+                line("add rax, rbx");
+                line("push rax");
+                return;
+            }
 
             case OpKind::Add: binary(w, {"add rax, rbx"}); return;
             case OpKind::Sub: binary(w, {"sub rax, rbx"}); return;

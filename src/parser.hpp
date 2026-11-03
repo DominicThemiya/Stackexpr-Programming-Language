@@ -13,10 +13,10 @@ namespace stackexpr {
 // another source file relative to the grabbing one; `grab asm<name>` includes
 // `<lib_dir>/name.asm`, plus `<lib_dir>/name.sxp` (its declarations) when that exists.
 //
-// `files` receives the path of every loaded file; Loc::file indexes it. Throws
+// `files` receives every loaded file (path and text); Loc::file indexes it. Throws
 // CompileError on the first problem.
 Program load_program(const std::string& path, const std::filesystem::path& lib_dir,
-                     std::vector<std::string>& files);
+                     std::vector<SourceFile>& files);
 
 // Built-in words (`dup`, `outb`, ...), which can't be used as names.
 const std::map<std::string, OpKind>& builtin_words();

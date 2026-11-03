@@ -21,6 +21,11 @@ for src in examples/*.sxp; do
         if ! diff -u "tests/expected/$name.txt" <("$TMP/$name"); then
             echo "FAIL $name: output"; fail=1; continue
         fi
+        # The unoptimised build must behave the same.
+        if ! $SX "$src" --no-optimize -o "$TMP/$name.plain" 2>"$TMP/err" ||
+           ! diff -u "tests/expected/$name.txt" <("$TMP/$name.plain"); then
+            echo "FAIL $name: output with --no-optimize"; cat "$TMP/err"; fail=1; continue
+        fi
     elif ! $SX -S "$src" -o "$TMP/$name" 2>"$TMP/err"; then
         echo "FAIL $name: compile"; cat "$TMP/err"; fail=1; continue
     fi
@@ -77,6 +82,34 @@ if [ $have_nasm = 1 ] && command -v qemu-system-x86_64 >/dev/null; then
     fi
 else
     echo "note: qemu-system-x86_64 not found, skipping boot tests"
+fi
+
+# Run-time checks: a failed check prints where it happened and exits with status 1.
+# expect_runtime_error <source> <stderr substring> [compiler flags...]
+expect_runtime_error() {
+    local src=$1 want=$2
+    shift 2
+    printf '%b' "$src" > "$TMP/r.sxp"
+    if ! $SX "$TMP/r.sxp" "$@" -o "$TMP/r" 2>"$TMP/err"; then
+        echo "FAIL runtime check: compile"; cat "$TMP/err"; fail=1; return
+    fi
+    "$TMP/r" >/dev/null 2>"$TMP/r.err"
+    local status=$?
+    if [ $status = 1 ] && grep -qF "$want" "$TMP/r.err"; then
+        echo "ok   runtime check: $want"
+    else
+        echo "FAIL runtime check, wanted status 1 and '$want', got status $status: $(cat "$TMP/r.err")"; fail=1
+    fi
+}
+if [ $have_nasm = 1 ]; then
+    expect_runtime_error 'reserve a 3 int\nstackexpr main\n\t2 1 + a[] drop\nend\n' "r.sxp:3:8: index out of bounds for 'a' (3 elements)"
+    expect_runtime_error 'stackexpr f ( -- ) call f end\nstackexpr main call f end\n' "return stack overflow entering 'f'"
+    printf 'reserve a 3 int\nstackexpr main 2 1 + a[] drop end\n' > "$TMP/nc.sxp"
+    if $SX "$TMP/nc.sxp" --no-checks -o "$TMP/nc" 2>/dev/null && "$TMP/nc"; then
+        echo "ok   --no-checks leaves the bounds check out"
+    else
+        echo "FAIL --no-checks"; fail=1
+    fi
 fi
 
 # expect_error <source> <message substring>
@@ -141,6 +174,20 @@ expect_error 'stackexpr main 1 ~ptr call f end\nstackexpr f (int -- ) drop end\n
 expect_error 'stackexpr main 1 execute (int -- int) drop end\n' "'execute' expects the address to call (ptr)"
 expect_error 'struct P\n x int\nend\nvar v\nstackexpr main v P.z drop end\n' "has no field 'z'"
 expect_error 'stackexpr f (int -- int) end\nstackexpr main f end\n' "use 'call f' to run it"
+
+# Arrays and characters
+expect_error 'reserve a 3 int\nstackexpr main 3 a[] drop end\n' "index 3 is out of bounds for 'a', which has 3 elements (0 to 2)"
+expect_error 'const N 3\nreserve a N int\nstackexpr main N a[] drop end\n' "index 3 is out of bounds"
+expect_error 'reserve a 3 int\nstackexpr main true a[] drop end\n' "'a[]' expects (int)"
+expect_error 'var v\nstackexpr main 0 v[] drop end\n' "'v' is a var, not an array"
+expect_error 'reserve a 3 Thing\nstackexpr main end\n' "unknown element type 'Thing'"
+expect_error 'reserve a SIZE\nstackexpr main end\n' "'SIZE' is not an int const"
+expect_error 'stackexpr main 1 [] drop end\n' "'[]' must follow an array name directly"
+expect_error "stackexpr main 'ab' drop end\\n" "more than one character"
+expect_error "stackexpr main '\\\\q' drop end\\n" "unknown escape"
+
+# Several errors are reported at once, in source order
+expect_error 'stackexpr b ( -- ) true 1 + drop end\nstackexpr a ( -- ) 1 end\nstackexpr main end\n' "2 errors"
 
 # Interrupts
 expect_error 'interrupt h (int int --) drop drop end\nstackexpr main end\n' 'interrupt handlers have the stack effect'

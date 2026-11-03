@@ -5,8 +5,8 @@ This page is for working on the compiler itself.
 ## Pipeline
 
 ```
-files ──► lexer ──► parser ──► Program ──► type checker ──► codegen ──► NASM assembly ──► nasm ──► ld
-         (LexEngine)  (+ loader)  (AST)     (resolves names)
+files ──► lexer ──► parser ──► Program ──► type checker ──► codegen ──► optimiser ──► NASM assembly ──► nasm ──► ld
+         (LexEngine)  (+ loader)  (AST)     (resolves names)            (peephole)
 ```
 
 | File | Role |
@@ -16,8 +16,9 @@ files ──► lexer ──► parser ──► Program ──► type checker 
 | `src/ast.hpp` | `Program`, the definitions, `Op`, and `CompileError` |
 | `src/parser.hpp`, `src/parser.cpp` | The loader, which follows `grab`s, and a recursive-descent parser per file |
 | `src/typecheck.hpp`, `src/typecheck.cpp` | Checks every stack expression against its stack effect and resolves names |
-| `src/codegen.hpp`, `src/codegen.cpp` | Generates NASM assembly from a checked `Program` |
-| `src/main.cpp` | Command-line driver: reports errors, runs `nasm` and `ld` |
+| `src/codegen.hpp`, `src/codegen.cpp` | Generates NASM assembly from a checked `Program`, including run-time checks |
+| `src/optimize.hpp`, `src/optimize.cpp` | The peephole optimiser, which rewrites the generated assembly |
+| `src/main.cpp` | Command-line driver: prints errors with source lines, runs `nasm` and `ld` |
 
 ## Lexing
 
@@ -36,7 +37,7 @@ Only structural words are keywords. Built-in words such as `dup` and `outb` are 
 - `grab "path"` loads a file relative to the grabbing one. Files are keyed by canonical path, so each is loaded once.
 - `grab asm<name>` records the library and loads `lib/name.sxp` if it exists.
 
-Each file is parsed by its own `Parser`, which adds definitions straight into the shared `Program`. All top-level names go into `Program::names`, which catches duplicates across files. Every `Loc` carries the index of its file in the list `main` prints errors from.
+Each file is parsed by its own `Parser`, which adds definitions straight into the shared `Program`. All top-level names go into `Program::names`, which catches duplicates across files. Every `Loc` carries the index of its file in the `SourceFile` list, which keeps each file's text so `main` can print the offending line under an error.
 
 ## Type checking
 
@@ -51,6 +52,12 @@ It checks each stack expression by walking its body with a **stack of types**, s
 - `return`, `break` and `continue` end the block. The checker represents that as "no stack" (`std::nullopt`), so a branch that returns doesn't have to match the other one.
 
 Inside a body, type variables from the stack expression's own signature are **rigid**: they only equal themselves, so a body declared `(a -- a)` can't, for example, add 1 to its input.
+
+Before checking bodies, the checker resolves each `reserve`: a const used as its count, and its element type's size, either of which may be defined in another file.
+
+Errors are collected rather than thrown straight away: each definition is checked inside its own `try`, so one mistake is reported per stack expression, and `typecheck` throws a single `CompileErrors` with all of them, sorted by location. A stack expression whose signature is invalid is skipped, since checking its body would only produce confusing follow-on errors.
+
+An array index directly preceded by a number or a const is checked against the array's length here, and the op is marked `checked` so the code generator leaves out the run-time check.
 
 The checker also resolves every name. It records whether a name is a local, a constant, a global or a struct field in `Op::ref`, and stores the value, offset or local slot in `Op::value`. Each `let` gets fresh slots, and the total is stored in `StackExprDef::frame_slots`.
 
@@ -76,6 +83,34 @@ Moving the return address off `rsp` keeps the caller's values directly under the
 An interrupt handler saves 14 registers (everything except `rsp` and `r15`) into its return-stack frame instead of a return address, and ends with `iretq`. If the CPU pushed an error code, it is on top of `rsp`, which is why such a handler is declared `(code: int -- )`.
 
 `execute` is `pop rax; call rax`, and enters the callee the same way as `call`.
+
+## Run-time checks
+
+Unless `--no-checks` is given, the code generator adds two kinds of check. Each jumps to a small stub after the definition on failure, so the normal path falls straight through:
+
+- **Return stack overflow**, in every prologue, right after `sub r15, ...`: `cmp r15, [_sx_rstack_limit]` / `jb`. Comparing with memory leaves every register untouched, which matters in an interrupt handler, whose registers aren't saved yet at that point.
+- **Array bounds**, in every `name[]` not proven safe at compile time: an unsigned compare of the index with the length, so negative indexes fail too.
+
+Each stub loads the address of a message with the source location into `rsi` and jumps to `_sx_check_fail`. That routine uses neither stack, since either may be what overflowed. On Linux it writes the message to stderr and exits with status 1; freestanding, it writes the message to port `0xe9` and halts.
+
+## Optimisation
+
+`optimize` in `src/optimize.cpp` works on the generated assembly text, line by line. It treats only lines indented by four spaces as instructions, skips comment lines, and treats everything else (labels, directives, macro calls) as a barrier. It repeats these rewrites until none applies:
+
+| Before | After | Why it's safe |
+| --- | --- | --- |
+| `mov rax, 5` / `push rax` | `push 5` | The value fits in 32 bits; nothing reads `rax` after a word ends |
+| `push X` / `pop X` | (nothing) | |
+| `push X` / `pop Y` | `mov Y, X` | |
+| `push X` / `add rsp, 8` | (nothing) | A value pushed and then dropped |
+| `push X` / moves / `pop Y` | moves / `mov Y, X` | The moves only write registers that `X` doesn't use, and don't touch `rsp` or memory |
+| `setl al` / `movzx eax, al` / `test rax, rax` / `jz L` | `jge L` | The bool was only used to branch |
+
+`X` and `Y` may use `rsp` as an address (`push qword [rsp]` for `dup`): once the push and pop are both removed, `rsp` at the `mov` has the same value it had at the `push`, so the address means the same slot.
+
+The rules rely on one property of the code generator: **no value is kept in a register from one word to the next**. Every word starts by loading what it needs from the stack. Two rules change what is left in a register or the flags afterwards (`push 5` no longer leaves 5 in `rax`, and a fused branch no longer leaves the bool in `rax`). So `invoke` code that expects a register to still hold a value from an earlier `invoke` can break. Pass values through the stack instead, or build with `--no-optimize`.
+
+`make test` runs every example both optimised and with `--no-optimize`, and compares both outputs with the expected one.
 
 ## Generated code
 
@@ -131,10 +166,11 @@ Use `-S` to see the output for any program.
 
 `make test` runs `tests/run.sh`, which:
 
-1. Compiles every `examples/*.sxp`, runs it and compares its output with `tests/expected/<name>.txt`. Without `nasm`, it only generates assembly.
+1. Compiles every `examples/*.sxp`, runs it and compares its output with `tests/expected/<name>.txt`, both optimised and with `--no-optimize`. Without `nasm`, it only generates assembly.
 2. Builds `tests/fixtures/halt.sxp` as a freestanding ELF and flat binary, and checks the entry address and the halt loop.
 3. If QEMU is installed, boots `examples/kernel/vga.sxp` and checks VGA memory for "Hi", then boots `examples/kernel/interrupts.sxp` and compares its debug console output with `tests/expected/kernel-interrupts.txt`.
-4. Checks that a list of invalid programs give the expected error messages, including every kind of type error.
+4. Runs programs that break a run-time check and checks their message and exit status, and that `--no-checks` removes the check.
+5. Checks that a list of invalid programs give the expected error messages, including every kind of type error.
 
 To add a test, add an example to `examples/` with its expected output in `tests/expected/`, or add an `expect_error` line to `tests/run.sh`.
 

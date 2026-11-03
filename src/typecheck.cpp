@@ -2,7 +2,9 @@
 
 #include "parser.hpp"
 
+#include <algorithm>
 #include <map>
+#include <tuple>
 #include <optional>
 #include <set>
 #include <sstream>
@@ -125,26 +127,99 @@ class Checker {
 public:
     explicit Checker(Program& prog) : prog_(prog) {}
 
-    void run() {
-        for (auto& [name, def] : prog_.externs) check_signature(def.sig, def.loc, "extern " + q(name));
-        for (auto& [name, def] : prog_.stackexprs) {
-            check_signature(def.sig, def.loc, "stackexpr " + q(name));
-            if (name == "main" && (!def.sig.in.empty() || !def.sig.out.empty())) {
-                throw CompileError(def.loc, "'main' must have the stack effect ( -- ); it starts and ends with an empty stack");
+    // Checks everything, collecting at most one error per definition so a single
+    // mistake doesn't hide the others.
+    std::vector<CompileError> run() {
+        std::vector<CompileError> errors;
+        auto attempt = [&](auto&& check) {
+            try {
+                check();
+            } catch (const CompileError& e) {
+                errors.push_back(e);
             }
-            if (def.kind == ExprKind::Interrupt) {
-                bool plain = def.sig.in.empty();
-                bool error_code = def.sig.in.size() == 1 && def.sig.in[0] == Type::int_();
-                if (!def.sig.out.empty() || !(plain || error_code)) {
-                    throw CompileError(def.loc, "interrupt handlers have the stack effect ( -- ), or (int -- ) "
-                                                "for CPU exceptions that push an error code");
-                }
-            }
+        };
+        for (auto& [name, def] : prog_.externs) {
+            attempt([&, &name = name, &def = def] { check_signature(def.sig, def.loc, "extern " + q(name)); });
         }
-        for (auto& [name, def] : prog_.stackexprs) check_definition(def);
+        for (auto& [name, def] : prog_.globals) {
+            attempt([&, &def = def] { resolve_reserve(def); });
+        }
+        std::set<std::string> bad_signature;
+        for (auto& [name, def] : prog_.stackexprs) {
+            attempt([&, &name = name, &def = def] {
+                try {
+                    check_stackexpr_signature(name, def);
+                } catch (...) {
+                    bad_signature.insert(name);
+                    throw;
+                }
+            });
+        }
+        for (auto& [name, def] : prog_.stackexprs) {
+            if (!bad_signature.count(name)) attempt([&, &def = def] { check_definition(def); });
+        }
+        return errors;
     }
 
 private:
+    void check_stackexpr_signature(const std::string& name, const StackExprDef& def) {
+        check_signature(def.sig, def.loc, "stackexpr " + q(name));
+        if (name == "main" && (!def.sig.in.empty() || !def.sig.out.empty())) {
+            throw CompileError(def.loc, "'main' must have the stack effect ( -- ); it starts and ends with an empty stack");
+        }
+        if (def.kind == ExprKind::Interrupt) {
+            bool plain = def.sig.in.empty();
+            bool error_code = def.sig.in.size() == 1 && def.sig.in[0] == Type::int_();
+            if (!def.sig.out.empty() || !(plain || error_code)) {
+                throw CompileError(def.loc, "interrupt handlers have the stack effect ( -- ), or (int -- ) "
+                                            "for CPU exceptions that push an error code");
+            }
+        }
+    }
+
+    // Works out a reserve's element count and size, which may name consts and structs
+    // defined anywhere.
+    void resolve_reserve(GlobalDef& g) {
+        if (g.kind != GlobalKind::Reserve) return;
+        if (!g.count_name.empty()) {
+            auto c = prog_.consts.find(g.count_name);
+            if (c == prog_.consts.end() || c->second.type != Type::int_()) {
+                throw CompileError(g.count_loc, "reserve " + q(g.name) + ": " + q(g.count_name) +
+                                                    " is not an int const; the size must be a number or an int const");
+            }
+            g.count = c->second.value;
+            if (g.count <= 0) throw CompileError(g.count_loc, "reserve " + q(g.name) + ": size must be positive");
+        }
+        if (g.is_array()) {
+            static const std::map<std::string, std::int64_t> scalars = {
+                {"u8", 1}, {"u16", 2}, {"u32", 4}, {"u64", 8}, {"int", 8}, {"ptr", 8}, {"bool", 8},
+            };
+            if (auto sc = scalars.find(g.elem_type); sc != scalars.end()) {
+                g.elem_size = sc->second;
+            } else if (auto st = prog_.structs.find(g.elem_type); st != prog_.structs.end()) {
+                g.elem_size = st->second.size;
+                if (g.elem_size == 0) throw CompileError(g.elem_loc, "struct " + q(g.elem_type) + " is empty");
+            } else {
+                throw CompileError(g.elem_loc, "unknown element type " + q(g.elem_type) +
+                                                   "; use u8, u16, u32, u64, int, ptr, bool or a struct");
+            }
+        }
+        if (g.count > (std::int64_t{1} << 40) / g.elem_size) {
+            throw CompileError(g.count_loc, "reserve " + q(g.name) + " is too large");
+        }
+        g.size = g.count * g.elem_size;
+    }
+
+    const GlobalDef* find_array(const Op& op) const {
+        auto it = prog_.globals.find(op.text);
+        if (it == prog_.globals.end() || !it->second.is_array()) {
+            std::string is = what_is(op.text);
+            throw CompileError(op.loc, q(op.text) + " is " + (is.empty() ? std::string("not defined") : is) +
+                                           ", not an array; declare one with: reserve " + op.text + " COUNT TYPE");
+        }
+        return &it->second;
+    }
+
     struct Local {
         std::string name;
         std::int64_t slot;
@@ -175,14 +250,32 @@ private:
     }
 
     std::optional<Stack> check_block(std::vector<Op>& ops, std::optional<Stack> s) {
+        const Op* prev = nullptr;
         for (Op& op : ops) {
             if (!s) {
                 throw CompileError(op.loc, "unreachable code: the previous 'return', 'break' or 'continue' "
                                            "always leaves this block");
             }
             s = check_op(op, std::move(*s));
+            if (op.kind == OpKind::Index && prev && is_constant_int(*prev)) check_constant_index(op, *prev);
+            prev = &op;
         }
         return s;
+    }
+
+    static bool is_constant_int(const Op& op) {
+        return op.kind == OpKind::PushInt || (op.kind == OpKind::Name && op.ref == NameRef::Const);
+    }
+
+    // An index known at compile time is checked now, and needs no check at run time.
+    void check_constant_index(Op& op, const Op& index) {
+        std::uint64_t i = static_cast<std::uint64_t>(index.value);
+        if (i >= static_cast<std::uint64_t>(op.count)) {
+            throw CompileError(index.loc, "index " + std::to_string(index.value) + " is out of bounds for " + q(op.text) +
+                                              ", which has " + std::to_string(op.count) + " elements (0 to " +
+                                              std::to_string(op.count - 1) + ")");
+        }
+        op.checked = true;
     }
 
     Stack apply(const Signature& sig, const Stack& s, Loc loc, const std::string& what) {
@@ -223,8 +316,12 @@ private:
     std::string what_is(const std::string& name) const {
         if (find_local(name)) return "a local";
         if (prog_.consts.count(name)) return "a const";
-        if (prog_.globals.count(name)) return "a " + std::string(prog_.globals.at(name).kind == GlobalKind::Var ? "var" :
-                                                                 prog_.globals.at(name).kind == GlobalKind::Data ? "data" : "reserve");
+        if (auto g = prog_.globals.find(name); g != prog_.globals.end()) {
+            return g->second.kind == GlobalKind::Var    ? "a var"
+                   : g->second.kind == GlobalKind::Data ? "a data"
+                   : g->second.is_array()               ? "an array"
+                                                        : "a reserve";
+        }
         if (prog_.structs.count(name)) return "a struct";
         if (prog_.externs.count(name)) return "an extern";
         if (prog_.stackexprs.count(name)) return "a stackexpr";
@@ -261,11 +358,29 @@ private:
             }
 
             case OpKind::SizeOf: {
-                auto it = prog_.structs.find(op.text);
-                if (it == prog_.structs.end()) throw CompileError(op.loc, "no struct named " + q(op.text));
-                op.value = it->second.size;
+                if (auto st = prog_.structs.find(op.text); st != prog_.structs.end()) {
+                    op.value = st->second.size;
+                } else if (auto g = prog_.globals.find(op.text);
+                           g != prog_.globals.end() && g->second.kind == GlobalKind::Reserve) {
+                    op.value = g->second.size;
+                } else {
+                    throw CompileError(op.loc, "'sizeof' needs a struct or a reserve, but " + q(op.text) + " is " +
+                                                   (what_is(op.text).empty() ? std::string("not defined") : what_is(op.text)));
+                }
                 s.push_back(Type::int_());
                 return s;
+            }
+
+            case OpKind::LengthOf:
+                op.value = find_array(op)->count;
+                s.push_back(Type::int_());
+                return s;
+
+            case OpKind::Index: {
+                const GlobalDef* g = find_array(op);
+                op.value = g->elem_size;
+                op.count = g->count;
+                return apply(sig("int -- ptr"), s, op.loc, q(op.text + "[]"));
             }
 
             case OpKind::Call: {
@@ -466,7 +581,11 @@ private:
 }  // namespace
 
 void typecheck(Program& prog) {
-    Checker(prog).run();
+    std::vector<CompileError> errors = Checker(prog).run();
+    std::stable_sort(errors.begin(), errors.end(), [](const CompileError& a, const CompileError& b) {
+        return std::tie(a.loc.file, a.loc.line, a.loc.column) < std::tie(b.loc.file, b.loc.line, b.loc.column);
+    });
+    if (!errors.empty()) throw CompileErrors(std::move(errors));
 }
 
 }  // namespace stackexpr

@@ -5,8 +5,9 @@
 namespace stackexpr {
 
 // Checks every stackexpr against its stack effect and resolves names, filling in the
-// fields of Op and StackExprDef that the code generator needs. Throws CompileError on
-// the first problem.
+// fields of Op, StackExprDef and GlobalDef that the code generator needs.
+//
+// Throws CompileErrors listing every problem found, at most one per definition.
 void typecheck(Program& prog);
 
 }  // namespace stackexpr

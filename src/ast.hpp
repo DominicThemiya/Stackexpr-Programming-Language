@@ -23,6 +23,18 @@ struct CompileError : std::runtime_error {
     CompileError(Loc l, const std::string& msg) : std::runtime_error(msg), loc(l) {}
 };
 
+// Several errors found in one pass, such as one per stackexpr from the type checker.
+struct CompileErrors : std::runtime_error {
+    std::vector<CompileError> errors;
+    explicit CompileErrors(std::vector<CompileError> e) : std::runtime_error("compile errors"), errors(std::move(e)) {}
+};
+
+// A loaded source file, kept so errors can show the offending line.
+struct SourceFile {
+    std::string path;
+    std::string text;
+};
+
 enum class OpKind {
     // Values
     PushInt,     // value
@@ -30,7 +42,9 @@ enum class OpKind {
     PushString,  // text: pushes the address of a 0-terminated copy
     Name,        // text: a local, const, global, or struct field (resolved by the type checker)
     AddrOf,      // text: &name, the address of a stackexpr or interrupt handler
-    SizeOf,      // text: sizeof Struct
+    SizeOf,      // text: sizeof Struct, or sizeof array (its size in bytes)
+    LengthOf,    // text: lengthof array (its number of elements)
+    Index,       // text: array[] (index -- address of that element)
     // Arithmetic and logic
     Add, Sub, Mul, Div, Mod, UDiv, UMod, Inc,
     Eq, Ne, Lt, Gt, Le, Ge, ULt, UGt, ULe, UGe,
@@ -74,6 +88,8 @@ struct Op {
 
     // Filled in by the type checker for the code generator.
     int overload = 0;                 // which variant of an overloaded word applies
+    std::int64_t count = 0;           // Index: number of elements
+    bool checked = false;             // Index: bounds already proven at compile time
     NameRef ref = NameRef::Unresolved;
     std::vector<std::int64_t> slots;  // Let: local slot per name; Name and Set use `value`
 };
@@ -120,8 +136,17 @@ struct GlobalDef {
     GlobalKind kind = GlobalKind::Var;
     std::int64_t init = 0;   // Var
     std::string bytes;       // Data, as written in the source (escapes not yet decoded)
-    std::int64_t size = 0;   // Reserve
+    std::int64_t size = 0;   // Reserve: total bytes (computed by the type checker for arrays)
     std::int64_t align = 8;  // Reserve
+    // Reserve: `reserve name COUNT [TYPE]`. COUNT is a number or a const name; with a
+    // TYPE (u8..u64, int, ptr, bool or a struct) the buffer is an array of COUNT elements.
+    std::int64_t count = 0;
+    std::string count_name;  // a const, resolved by the type checker
+    Loc count_loc;
+    std::string elem_type;   // empty for a plain byte buffer
+    Loc elem_loc;
+    std::int64_t elem_size = 1;
+    bool is_array() const { return !elem_type.empty(); }
 };
 
 struct Field {

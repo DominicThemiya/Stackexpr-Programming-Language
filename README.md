@@ -53,10 +53,11 @@ If you cloned without `--recurse-submodules`, run `git submodule update --init` 
 
 | Document | Contents |
 | --- | --- |
-| [Language reference](docs/language.md) | Types and stack effects, stack expressions, every operation, locals, control flow, memory, structs, interrupts |
-| [Compiler usage](docs/compiler.md) | Command-line options, library lookup, error messages |
+| [Language reference](docs/language.md) | Types and stack effects, stack expressions, every operation, locals, control flow, memory, arrays, structs, run-time checks, interrupts |
+| [Compiler usage](docs/compiler.md) | Command-line options, optimisation, library lookup, error messages |
 | [Freestanding and kernels](docs/freestanding.md) | Building and booting a kernel with QEMU or GRUB, and handling interrupts |
 | [Assembly libraries](docs/libraries.md) | What `asm<io>`, `asm<linux64>`, `asm<generics>` and `asm<multiboot>` provide |
+| [Editor support](docs/editors.md) | Syntax highlighting for Vim and Neovim |
 | [Compiler internals](docs/internals.md) | How the compiler is structured, for contributors |
 
 Example programs are in [`examples/`](examples).
@@ -70,4 +71,5 @@ Example programs are in [`examples/`](examples).
 | `examples/` | Example programs, including bootable kernels in `examples/kernel/` |
 | `tests/` | The test suite (`make test`) |
 | `docs/` | Documentation |
+| `editors/` | Editor support: syntax highlighting for Vim and Neovim |
 | `third_party/LexEngine` | The [LexEngine](https://github.com/DominicThemiya/LexEngine) lexer library (git submodule) |

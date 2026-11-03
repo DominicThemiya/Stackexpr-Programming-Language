@@ -13,6 +13,7 @@ Every stack expression declares what it takes from the stack and what it leaves,
 - [Locals](#locals)
 - [Control flow](#control-flow)
 - [Memory and data](#memory-and-data)
+- [Run-time checks](#run-time-checks)
 - [Structs](#structs)
 - [Hardware and interrupts](#hardware-and-interrupts)
 - [Multiple files and libraries](#multiple-files-and-libraries)
@@ -184,6 +185,7 @@ When `main` finishes, a Linux program exits with status 0, and a [freestanding](
 | Literal | Example |
 | --- | --- |
 | Decimal | `42` |
+| Character | `'A'` (65); see [Characters](#characters) |
 | Negative | `-7` (no space between `-` and the digits) |
 | Hexadecimal | `0xb8000` |
 | Binary | `0b1010` |
@@ -203,7 +205,27 @@ A string literal in code pushes the address (`ptr`) of a 0-terminated copy of it
 "Hello\n" call putStr
 ```
 
-Strings can use `"..."` or `'...'`, and support escapes such as `\n`, `\t` and `\0`.
+Strings support escapes such as `\n`, `\t` and `\0`.
+
+### Characters
+
+A character in single quotes is the number of that byte, an `int`:
+
+```
+'A'          // 65
+'\n'         // 10
+'H' 0x0f00 or 0xb8000 ~ptr !16    // a white "H" on the VGA screen
+```
+
+| Escape | Byte |
+| --- | --- |
+| `\n` `\t` `\r` | newline (10), tab (9), carriage return (13) |
+| `\0` | 0 |
+| `\e` | escape (27), for terminal colour codes |
+| `\\` `\'` `\"` | backslash, single quote, double quote |
+| `\xHH` | the byte with hexadecimal value HH, such as `'\x1b'` |
+
+A character literal holds exactly one byte; use `"..."` for text. Characters can also be the value of a `const`: `const NEWLINE '\n'`.
 
 ### Constants
 
@@ -401,6 +423,9 @@ These top-level definitions reserve memory. Using the name pushes its address, a
 | `data name "text"` | The bytes of the string, then a 0 byte | the string |
 | `reserve name 4096` | A buffer of that many bytes | zeros |
 | `reserve name 4096 align 4096` | A buffer aligned to a power of two | zeros |
+| `reserve name 256 Type` | An [array](#arrays) of 256 elements | zeros |
+
+The size or count can also be the name of an `int` const: `reserve buffer BUFFER_SIZE`.
 
 ```
 var counter
@@ -422,6 +447,62 @@ end
 ```
 
 Freestanding programs loaded as flat binaries get no zeroed memory for `reserve` unless the loader provides it; see [Freestanding](freestanding.md#limitations).
+
+### Arrays
+
+`reserve` with an element type makes an array. The type is `u8`, `u16`, `u32`, `u64`, `int`, `ptr`, `bool` or a [struct](#structs):
+
+```
+const N 5
+reserve squares N int
+reserve idt 256 IdtEntry
+```
+
+| Word | Stack effect | Meaning |
+| --- | --- | --- |
+| `name[]` | `index: int -- ptr` | The address of element `index` (counting from 0) |
+| `lengthof name` | `-- int` | The number of elements |
+| `sizeof name` | `-- int` | The size in bytes |
+
+`[]` goes right after the name, with no space. Read and write elements with the memory words, and struct fields with `Struct.field`:
+
+```
+// squares[i] = i * i
+0
+while dup N < do
+	dup dup * over squares[] !64
+	++
+end
+drop
+
+4 squares[] @64                  // 16
+'x' 2 pairs[] Pair.second !8     // pairs[2].second = 'x'
+```
+
+Every index is checked:
+
+- An index written as a number or a const is checked when compiling. `5 squares[]` is an error, because `squares` has elements 0 to 4.
+- Any other index is checked when the program runs. An index out of range stops the program with a message saying where; see [run-time checks](#run-time-checks).
+
+## Run-time checks
+
+Two mistakes the compiler can't rule out are caught while the program runs:
+
+| Check | Fails when |
+| --- | --- |
+| Array bounds | An array index is negative or too large |
+| Return stack | Stack expressions call each other too deeply, usually because of runaway recursion |
+
+A failed check prints a message with the location and stops the program:
+
+```
+stackexpr: fill.sxp:12:9: index out of bounds for 'squares' (5 elements)
+stackexpr: fact.sxp:3:11: return stack overflow entering 'fact' (recursion too deep?)
+```
+
+A Linux program writes it to stderr and exits with status 1. A freestanding program writes it to the debug console (port `0xe9`) and halts.
+
+The checks cost a compare and a branch each. `--no-checks` leaves them out; see [Compiler usage](compiler.md#code-generation-options).
 
 ## Structs
 
@@ -450,6 +531,8 @@ end
 | --- | --- | --- |
 | `Struct.field` | `ptr -- ptr` | Add the field's offset to an address |
 | `sizeof Struct` | `-- int` | The struct's size in bytes |
+
+An [array](#arrays) of structs is declared with the struct as its element type: `reserve idt 256 IdtEntry`.
 
 Fields are read and written with the memory words, using the width that matches the field:
 
@@ -525,7 +608,7 @@ invoke "int3"                          // ( -- )
 invoke "not qword [rsp]" (int -- int)  // flips the bits of the top value
 ```
 
-As with `extern`, the compiler trusts the stated stack effect. The text is copied as written; escapes such as `\n` are not decoded, so each `invoke` is one line. The data stack is the CPU stack (`rsp`), and `r15` must not be changed; see [Compiler internals](internals.md#generated-code).
+Pass values to and from `invoke` through the stack, not in registers: no register keeps its value from one word to the next, especially after optimisation. As with `extern`, the compiler trusts the stated stack effect. The text is copied as written; escapes such as `\n` are not decoded, so each `invoke` is one line. The data stack is the CPU stack (`rsp`), and `r15` must not be changed; see [Compiler internals](internals.md#generated-code).
 
 ## Comments
 
@@ -540,7 +623,7 @@ Keywords:
 ```
 grab stackexpr inline interrupt extern end call
 if else while do break continue return
-const var data reserve struct sizeof let in set execute invoke true false
+const var data reserve struct sizeof lengthof let in set execute invoke true false
 ```
 
 Built-in words, which can't be used as names:
