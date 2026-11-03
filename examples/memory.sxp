@@ -1,8 +1,8 @@
 grab asm<io>
 grab asm<linux64>
 
-const cell 0
-const bytes "ABCD"
+var cell
+data bytes "ABCD"
 
 stackexpr main
 	1234 cell !64
@@ -21,5 +21,5 @@ stackexpr main
 	75 bytes 1 + !8
 	10 bytes 2 + !8
 	0 bytes 3 + !8
-	invoke "putS bytes"
+	bytes call putStr
 end

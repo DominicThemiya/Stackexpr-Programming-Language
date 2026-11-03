@@ -15,10 +15,10 @@ struct CodegenOptions {
     std::string entry = "_start";
 };
 
-// Generates NASM x86_64 assembly whose entry symbol runs `stackexpr main`.
+// Generates NASM x86_64 assembly from a type-checked program.
 //
-// Stackexprs are inlined at each call site. A `call` to a name that is not a
-// stackexpr is emitted as an invocation of an assembly library macro (from `grab`).
+// The data stack is the CPU stack (rsp). Return addresses and locals live on a
+// separate return stack pointed to by r15, so subroutines don't disturb the data stack.
 std::string generate(const Program& prog, const CodegenOptions& options = {});
 
 }  // namespace stackexpr

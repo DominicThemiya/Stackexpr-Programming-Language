@@ -1,0 +1,100 @@
+// A kernel that handles interrupts. It installs an interrupt descriptor table (IDT),
+// catches a breakpoint exception, and waits for three timer interrupts. It writes
+// its messages to QEMU's debug console (port 0xe9).
+//
+//   make run-kernel KERNEL=examples/kernel/interrupts
+
+grab asm<multiboot>
+
+const DEBUGCON 0xe9          // QEMU prints bytes written here (-debugcon stdio)
+const KERNEL_CODE 0x08       // code segment set up by asm<multiboot>
+const INTERRUPT_GATE 0x8e    // present, ring 0, 64-bit interrupt gate
+
+stackexpr debug_print (s: ptr --)
+	while dup @8 0 != do
+		dup @8 DEBUGCON outb
+		++
+	end
+	drop
+end
+
+// ---- Interrupt descriptor table ---------------------------------------------
+
+struct IdtEntry
+	offset_low u16
+	selector u16
+	ist u8
+	flags u8
+	offset_mid u16
+	offset_high u32
+	reserved u32
+end
+
+struct IdtPointer
+	limit u16
+	base u64
+end
+
+reserve idt 4096 align 16    // 256 entries of 16 bytes
+reserve idtr 16
+
+// Points interrupt `vector` at `handler`.
+stackexpr set_gate (handler: ptr vector: int --)
+	let handler vector in
+		vector sizeof IdtEntry * idt +
+		let e in
+			handler as int 0xffff and           e IdtEntry.offset_low !16
+			KERNEL_CODE                         e IdtEntry.selector !16
+			0                                   e IdtEntry.ist !8
+			INTERRUPT_GATE                      e IdtEntry.flags !8
+			handler as int 16 shr 0xffff and    e IdtEntry.offset_mid !16
+			handler as int 32 shr               e IdtEntry.offset_high !32
+			0                                   e IdtEntry.reserved !32
+		end
+	end
+end
+
+stackexpr load_idt ( -- )
+	4095 idtr IdtPointer.limit !16
+	idt idtr IdtPointer.base !64
+	idtr lidt
+end
+
+// ---- Programmable interrupt controller --------------------------------------
+
+// Moves hardware interrupts to vectors 32-47, clear of CPU exceptions, and
+// enables only IRQ 0, the timer.
+stackexpr pic_init ( -- )
+	0x11 0x20 outb   0x11 0xa0 outb    // start initialisation
+	32   0x21 outb   40   0xa1 outb    // vector offsets
+	4    0x21 outb   2    0xa1 outb    // wiring between the two PICs
+	1    0x21 outb   1    0xa1 outb    // 8086 mode
+	0xfe 0x21 outb   0xff 0xa1 outb    // masks: only IRQ 0
+end
+
+// ---- Handlers ---------------------------------------------------------------
+
+var ticks
+
+interrupt on_breakpoint
+	"breakpoint handled\n" call debug_print
+end
+
+interrupt on_timer
+	ticks @64 ++ ticks !64
+	0x20 0x20 outb                     // end of interrupt
+end
+
+stackexpr main
+	"Stackexpr kernel booted\n" call debug_print
+	&on_breakpoint 3 call set_gate
+	&on_timer 32 call set_gate
+	call load_idt
+	call pic_init
+
+	invoke "int3"                      // raise a breakpoint exception
+	sti
+	while ticks @64 3 < do hlt end     // sleep until three timer ticks
+	cli
+	"3 timer ticks\n" call debug_print
+end

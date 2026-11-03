@@ -1,1 +1,2 @@
 Hello, world!
+String literals work too.

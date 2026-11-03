@@ -1,56 +1,57 @@
 #include "lexer.hpp"
 
+#include <cctype>
+
 namespace stackexpr {
 
 static lexengine::LangDef<Tok> build_language() {
     lexengine::LangDef<Tok> lang(Tok::Eof, Tok::Error);
     lang.keyword("grab", Tok::Grab)
         .keyword("stackexpr", Tok::StackExpr)
+        .keyword("inline", Tok::Inline)
+        .keyword("interrupt", Tok::Interrupt)
+        .keyword("extern", Tok::Extern)
         .keyword("end", Tok::End)
         .keyword("call", Tok::Call)
         .keyword("if", Tok::If)
+        .keyword("else", Tok::Else)
         .keyword("while", Tok::While)
         .keyword("do", Tok::Do)
+        .keyword("break", Tok::Break)
+        .keyword("continue", Tok::Continue)
+        .keyword("return", Tok::Return)
         .keyword("const", Tok::Const)
+        .keyword("var", Tok::Var)
+        .keyword("data", Tok::Data)
+        .keyword("reserve", Tok::Reserve)
+        .keyword("struct", Tok::Struct)
+        .keyword("sizeof", Tok::Sizeof)
+        .keyword("let", Tok::Let)
+        .keyword("in", Tok::In)
+        .keyword("set", Tok::Set)
+        .keyword("as", Tok::As)
+        .keyword("execute", Tok::Execute)
         .keyword("invoke", Tok::Invoke)
-        .keyword("dup", Tok::Dup)
-        .keyword("swap", Tok::Swap)
-        .keyword("drop", Tok::Drop)
-        .keyword("mod", Tok::Mod)
-        .keyword("udiv", Tok::UDiv)
-        .keyword("umod", Tok::UMod)
-        .keyword("ult", Tok::ULt)
-        .keyword("ugt", Tok::UGt)
-        .keyword("ule", Tok::ULe)
-        .keyword("uge", Tok::UGe)
-        .keyword("and", Tok::And)
-        .keyword("or", Tok::Or)
-        .keyword("xor", Tok::Xor)
-        .keyword("not", Tok::Not)
-        .keyword("shl", Tok::Shl)
-        .keyword("shr", Tok::Shr)
-        .keyword("sar", Tok::Sar)
-        .symbol("+", Tok::Plus)
-        .symbol("++", Tok::PlusPlus)
-        .symbol("-", Tok::Minus)
-        .symbol("*", Tok::Star)
-        .symbol("/", Tok::Slash)
-        .symbol("==", Tok::Eq)
-        .symbol("!=", Tok::Ne)
-        .symbol("<", Tok::Lt)
-        .symbol(">", Tok::Gt)
-        .symbol("<=", Tok::Le)
-        .symbol(">=", Tok::Ge)
-        .symbol("@8", Tok::Load8)
-        .symbol("@16", Tok::Load16)
-        .symbol("@32", Tok::Load32)
-        .symbol("@64", Tok::Load64)
-        .symbol("!8", Tok::Store8)
-        .symbol("!16", Tok::Store16)
-        .symbol("!32", Tok::Store32)
-        .symbol("!64", Tok::Store64)
-        .identifier(Tok::Ident)
-        .string_literal(Tok::String, "\"", "\"")
+        .keyword("true", Tok::True)
+        .keyword("false", Tok::False);
+
+    for (const char* op : {"+", "++", "-", "*", "/", "==", "!=", "<", ">", "<=", ">=",
+                           "@8", "@16", "@32", "@64", "!8", "!16", "!32", "!64"}) {
+        lang.symbol(op, Tok::Op);
+    }
+    lang.symbol("(", Tok::LParen)
+        .symbol(")", Tok::RParen)
+        .symbol("--", Tok::DashDash)
+        .symbol(":", Tok::Colon)
+        .symbol("&", Tok::Amp);
+
+    // Identifiers may contain '.', so struct fields read as `Point.x`.
+    lexengine::LangDef<Tok>::IdentifierRule ident{Tok::Ident};
+    ident.is_start = [](char c) { return std::isalpha(static_cast<unsigned char>(c)) || c == '_'; };
+    ident.is_continue = [](char c) { return std::isalnum(static_cast<unsigned char>(c)) || c == '_' || c == '.'; };
+    lang.identifier(ident);
+
+    lang.string_literal(Tok::String, "\"", "\"")
         .string_literal(Tok::String, "'", "'")
         .line_comment("//");
 
@@ -74,53 +75,42 @@ const char* describe(Tok t) {
     switch (t) {
         case Tok::Grab: return "'grab'";
         case Tok::StackExpr: return "'stackexpr'";
+        case Tok::Inline: return "'inline'";
+        case Tok::Interrupt: return "'interrupt'";
+        case Tok::Extern: return "'extern'";
         case Tok::End: return "'end'";
         case Tok::Call: return "'call'";
         case Tok::If: return "'if'";
+        case Tok::Else: return "'else'";
         case Tok::While: return "'while'";
         case Tok::Do: return "'do'";
+        case Tok::Break: return "'break'";
+        case Tok::Continue: return "'continue'";
+        case Tok::Return: return "'return'";
         case Tok::Const: return "'const'";
+        case Tok::Var: return "'var'";
+        case Tok::Data: return "'data'";
+        case Tok::Reserve: return "'reserve'";
+        case Tok::Struct: return "'struct'";
+        case Tok::Sizeof: return "'sizeof'";
+        case Tok::Let: return "'let'";
+        case Tok::In: return "'in'";
+        case Tok::Set: return "'set'";
+        case Tok::As: return "'as'";
+        case Tok::Execute: return "'execute'";
         case Tok::Invoke: return "'invoke'";
-        case Tok::Dup: return "'dup'";
-        case Tok::Swap: return "'swap'";
-        case Tok::Drop: return "'drop'";
-        case Tok::Mod: return "'mod'";
-        case Tok::UDiv: return "'udiv'";
-        case Tok::UMod: return "'umod'";
-        case Tok::ULt: return "'ult'";
-        case Tok::UGt: return "'ugt'";
-        case Tok::ULe: return "'ule'";
-        case Tok::UGe: return "'uge'";
-        case Tok::And: return "'and'";
-        case Tok::Or: return "'or'";
-        case Tok::Xor: return "'xor'";
-        case Tok::Not: return "'not'";
-        case Tok::Shl: return "'shl'";
-        case Tok::Shr: return "'shr'";
-        case Tok::Sar: return "'sar'";
-        case Tok::Load8: return "'@8'";
-        case Tok::Load16: return "'@16'";
-        case Tok::Load32: return "'@32'";
-        case Tok::Load64: return "'@64'";
-        case Tok::Store8: return "'!8'";
-        case Tok::Store16: return "'!16'";
-        case Tok::Store32: return "'!32'";
-        case Tok::Store64: return "'!64'";
+        case Tok::True: return "'true'";
+        case Tok::False: return "'false'";
         case Tok::Ident: return "identifier";
         case Tok::Int: return "integer";
         case Tok::Float: return "float";
         case Tok::String: return "string";
-        case Tok::Plus: return "'+'";
-        case Tok::PlusPlus: return "'++'";
-        case Tok::Minus: return "'-'";
-        case Tok::Star: return "'*'";
-        case Tok::Slash: return "'/'";
-        case Tok::Eq: return "'=='";
-        case Tok::Ne: return "'!='";
-        case Tok::Lt: return "'<'";
-        case Tok::Gt: return "'>'";
-        case Tok::Le: return "'<='";
-        case Tok::Ge: return "'>='";
+        case Tok::Op: return "operator";
+        case Tok::LParen: return "'('";
+        case Tok::RParen: return "')'";
+        case Tok::DashDash: return "'--'";
+        case Tok::Colon: return "':'";
+        case Tok::Amp: return "'&'";
         case Tok::Eof: return "end of file";
         case Tok::Error: return "invalid input";
     }

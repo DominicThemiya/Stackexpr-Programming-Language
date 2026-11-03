@@ -6,7 +6,7 @@ INCLUDES := -Isrc -Ithird_party/LexEngine
 SOURCES := $(wildcard src/*.cpp)
 HEADERS := $(wildcard src/*.hpp) $(wildcard third_party/LexEngine/*.hpp)
 
-KERNEL := examples/kernel/vga
+KERNEL ?= examples/kernel/vga
 KERNEL_FLAGS := --freestanding --entry kmain -T lib/multiboot.ld
 
 .PHONY: all test clean kernel run-kernel
@@ -24,9 +24,10 @@ test: build/stackexpr
 kernel: build/stackexpr
 	./build/stackexpr $(KERNEL).sxp $(KERNEL_FLAGS) -o build/kernel
 
-# Boots the kernel in QEMU. Close the window (or Ctrl+C) to quit.
+# Boots the kernel in QEMU, showing the debug console (port 0xe9) in the terminal.
+# Close the window (or Ctrl+C) to quit. Pick another kernel with KERNEL=examples/kernel/<name>.
 run-kernel: kernel
-	qemu-system-x86_64 -kernel build/kernel
+	qemu-system-x86_64 -kernel build/kernel -debugcon stdio
 
 clean:
 	rm -rf build

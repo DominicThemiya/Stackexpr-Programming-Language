@@ -1,0 +1,4 @@
+// Declarations for asm<multiboot>, the boot stub for GRUB and QEMU -kernel.
+
+extern multiboot_info ( -- ptr)    // address of the Multiboot information structure
+extern multiboot_magic ( -- int)   // 0x2BADB002 when booted by a Multiboot loader

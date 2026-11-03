@@ -1,0 +1,4 @@
+// Declarations for asm<io>: printing on Linux. Needs asm<linux64>.
+
+extern putI64 (n: int --)      // print a signed integer and a newline
+extern putStr (s: ptr --)      // print a 0-terminated string

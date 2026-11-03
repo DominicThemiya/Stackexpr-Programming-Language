@@ -50,13 +50,16 @@ The compiler checks that each grabbed library exists before generating code, and
 Errors are reported as `file:line:column: error: message`, and the compiler exits with status 1:
 
 ```
-math.sxp:8:1: error: 'entry' is no longer supported; define the entry point with 'stackexpr main ... end'
-math.sxp:3:13: error: recursive stackexpr call: main -> a -> b -> a (stackexprs are inlined, so recursion is not supported)
+half.sxp:1:11: error: stackexpr 'half' is declared (int -- int) but leaves (int int) at its end
+math.sxp:4:7: error: '+' expects (int int) or (ptr int) or (int ptr) on top of the stack, but found (bool int)
+util.sxp:2:5: error: 'call square' expects (int) on top of the stack, but found (nothing)
 ```
+
+When the error is in a grabbed file, that file's path is shown.
 
 The compiler stops at the first error. If `nasm` or `ld` fails, their messages are shown and the compiler exits with their status.
 
-Errors inside a stack expression are only found when it is compiled, which happens when `main` calls it, directly or through other stack expressions. A stack expression that is never called is checked for syntax but not for unknown names.
+Every stack expression is type checked, whether or not anything calls it. The [language reference](language.md#what-the-compiler-checks) lists what is checked.
 
 ## Exit status
 

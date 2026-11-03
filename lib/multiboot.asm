@@ -8,7 +8,8 @@
 ;   - long mode, interrupts disabled
 ;   - the first 1 GiB of memory is identity-mapped with 2 MiB pages
 ;   - rsp points to a 16 KiB stack
-;   - rdi holds the Multiboot info pointer, rsi the Multiboot magic (0x2BADB002)
+;   - the Multiboot info pointer and magic value are saved; the multiboot_info and
+;     multiboot_magic macros (declared in multiboot.sxp) push them
 ;
 ; Link with lib/multiboot.ld, which defines the symbols used by the header and
 ; places the header at the start of the image.
@@ -40,6 +41,8 @@ _sx_gdt:
 _sx_gdt_ptr:
     dw $ - _sx_gdt - 1
     dq _sx_gdt
+_sx_mb_info:  dq 0
+_sx_mb_magic: dq 0
 
 section .bss
 align 4096
@@ -54,8 +57,8 @@ bits 32
 _sx_mb_entry:
     cli
     mov esp, _sx_stack_top
-    mov edi, ebx                     ; Multiboot info pointer
-    mov esi, eax                     ; Multiboot magic
+    mov [_sx_mb_info], ebx           ; Multiboot info pointer
+    mov [_sx_mb_magic], eax          ; Multiboot magic
 
     ; Page tables: PML4[0] -> PDPT, PDPT[0] -> PD, PD[i] -> 2 MiB page i
     mov eax, _sx_pdpt
@@ -100,3 +103,11 @@ _sx_long_mode:
     mov fs, ax
     mov gs, ax
     jmp SX_ENTRY
+
+%macro multiboot_info 0
+    push qword [_sx_mb_info]
+%endmacro
+
+%macro multiboot_magic 0
+    push qword [_sx_mb_magic]
+%endmacro

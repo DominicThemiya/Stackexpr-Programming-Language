@@ -1,6 +1,6 @@
 # Assembly libraries
 
-Assembly libraries live in `lib/` and are included with `grab asm<name>`. They are written in NASM syntax and can contain macros, constants and code. A macro that takes no arguments can be used with `call`; one that takes arguments needs [`invoke`](language.md#inline-assembly).
+Assembly libraries live in `lib/` and are included with `grab asm<name>`. Each is a NASM file (`name.asm`) and, optionally, a declarations file (`name.sxp`) that is loaded automatically and declares its macros with `extern`, so the type checker knows their stack effects.
 
 | Library | For | Provides |
 | --- | --- | --- |
@@ -13,23 +13,25 @@ Assembly libraries live in `lib/` and are included with `grab asm<name>`. They a
 
 Needs `asm<linux64>` as well.
 
-| Macro | Use | Effect |
+| Word | Stack effect | Effect |
 | --- | --- | --- |
-| `putI64` | `call putI64` | Takes the top of the stack and prints it as a signed integer, followed by a newline |
-| `putS` | `invoke "putS label"` | Prints the 0-terminated string at `label`, such as a `const` |
-| `puti` | `invoke "puti rax"` | Prints a register or value as an unsigned integer, followed by a newline |
+| `call putI64` | `n: int --` | Prints a signed integer, followed by a newline |
+| `call putStr` | `s: ptr --` | Prints the 0-terminated string at an address, such as a `data` or a string literal |
 
 ```
 grab asm<io>
 grab asm<linux64>
 
-const greeting "Hello\n"
+data greeting "Hello\n"
 
 stackexpr main
-	invoke "putS greeting"
+	greeting call putStr
+	"world\n" call putStr
 	-42 call putI64
 end
 ```
+
+`io.asm` also has two older macros that take NASM arguments rather than stack values, `putS label` and `puti value`. They aren't declared, so they can only be used through `invoke`.
 
 The compiler adds the buffers this library needs (`digitSpace`, `digitSpacePos`, `negative_symbol`) when it is grabbed.
 
@@ -43,25 +45,52 @@ Constants for Linux system calls, usable in `invoke` lines:
 | File descriptors | `STDIN`, `STDOUT`, `STDERR` |
 | `open` flags | `O_RDONLY`, `O_WRONLY`, `O_CREAT`, `O_TRUNC`, ... |
 
-It contains no code.
+It contains no code and has no declarations file.
 
 ## asm\<generics\>
 
-| Macro | Use | Effect |
+| Word | Stack effect | Effect |
 | --- | --- | --- |
-| `exit` | `call exit` | Exits the program with status 0. Needs `asm<linux64>`. |
+| `call exit` | `--` | Exits the program with status 0. Needs `asm<linux64>`. |
 
 ## asm\<multiboot\>
 
-Makes a freestanding program bootable by Multiboot loaders such as GRUB and QEMU's `-kernel`. It switches the CPU from 32-bit to 64-bit mode, sets up memory mapping and a stack, then jumps to the entry symbol.
+Makes a freestanding program bootable by Multiboot loaders such as GRUB and QEMU's `-kernel`. It switches the CPU from 32-bit to 64-bit mode, sets up memory mapping, a GDT and a stack, then jumps to the entry symbol.
+
+| Word | Stack effect | Effect |
+| --- | --- | --- |
+| `call multiboot_info` | `-- ptr` | Address of the Multiboot information structure from the bootloader |
+| `call multiboot_magic` | `-- int` | `0x2BADB002` when booted by a Multiboot loader |
 
 Build with `--freestanding --entry <name> -T lib/multiboot.ld`. [Freestanding and kernels](freestanding.md#booting-with-asmmultiboot) describes the machine state when `main` starts.
 
 ## Writing a library
 
-A library is any `.asm` file in the library directory. It is included near the top of the generated assembly, in the `.text` section, before the entry symbol. Keep in mind:
+A library is a `.asm` file in the library directory, plus an optional `.sxp` file with the same name for its declarations.
 
-- Name labels so they won't clash with the compiler's, which start with `_sx_`.
+The `.asm` file is included near the top of the generated assembly, in the `.text` section, before the entry symbol:
+
+- Name labels so they won't clash with the compiler's, which start with `_sx_` or `sx_`.
 - Code in a library sits before the entry point and never runs unless called, so it is safe to define subroutines.
 - A library may switch sections (`section .data`) or modes (`bits 32`). The compiler switches back to `section .text` and `bits 64` afterwards.
 - The entry symbol's name is available as `SX_ENTRY`.
+
+A macro used from Stackexpr takes no NASM arguments. It takes its inputs from the data stack with `pop` and leaves its outputs with `push`:
+
+```nasm
+%macro double 0
+    pop rax
+    add rax, rax
+    push rax
+%endmacro
+```
+
+It may use any register except `rsp` (beyond its own pushes and pops) and `r15`, which holds the return stack. Real subroutines (`call`/`ret`) inside a macro are fine, as long as they leave `rsp` balanced.
+
+Declare it in the `.sxp` file with the stack effect it actually has:
+
+```
+extern double (n: int -- int)
+```
+
+The compiler trusts this declaration, so a wrong one leads to a broken program rather than a compile error.

@@ -12,7 +12,7 @@
 Stackexpr is a concatenative stack-based programming language that compiles to x86_64 Assembly.
 Reverse Polish Notation is used extensively.
 
-It can build Linux programs and freestanding code such as kernels, which boot straight from QEMU or GRUB.
+Every stack expression declares the types it takes and leaves, and the compiler checks them. It can build Linux programs and freestanding code such as kernels with interrupt handlers, which boot straight from QEMU or GRUB.
 
 **WARNING: The compiler and the programs it builds only run on Linux x86_64.**
 
@@ -20,7 +20,7 @@ It can build Linux programs and freestanding code such as kernels, which boot st
 grab asm<io>
 grab asm<linux64>
 
-stackexpr square
+stackexpr square (n: int -- int)
 	dup *
 end
 
@@ -44,6 +44,7 @@ make test                             # runs the test suite
 ./examples/math
 
 make run-kernel                       # boots examples/kernel/vga.sxp in QEMU
+make run-kernel KERNEL=examples/kernel/interrupts   # a kernel with interrupt handlers
 ```
 
 If you cloned without `--recurse-submodules`, run `git submodule update --init` first.
@@ -52,9 +53,9 @@ If you cloned without `--recurse-submodules`, run `git submodule update --init` 
 
 | Document | Contents |
 | --- | --- |
-| [Language reference](docs/language.md) | Syntax, the entry point, every operation, memory, control flow |
+| [Language reference](docs/language.md) | Types and stack effects, stack expressions, every operation, locals, control flow, memory, structs, interrupts |
 | [Compiler usage](docs/compiler.md) | Command-line options, library lookup, error messages |
-| [Freestanding and kernels](docs/freestanding.md) | Building and booting a kernel with QEMU or GRUB |
+| [Freestanding and kernels](docs/freestanding.md) | Building and booting a kernel with QEMU or GRUB, and handling interrupts |
 | [Assembly libraries](docs/libraries.md) | What `asm<io>`, `asm<linux64>`, `asm<generics>` and `asm<multiboot>` provide |
 | [Compiler internals](docs/internals.md) | How the compiler is structured, for contributors |
 
@@ -64,9 +65,9 @@ Example programs are in [`examples/`](examples).
 
 | Path | Contents |
 | --- | --- |
-| `src/` | The compiler: lexer, parser, code generator and command-line driver |
-| `lib/` | Assembly libraries for `grab asm<...>`, and the Multiboot linker script |
-| `examples/` | Example programs, including a bootable kernel in `examples/kernel/` |
+| `src/` | The compiler: lexer, parser, type checker, code generator and command-line driver |
+| `lib/` | Assembly libraries for `grab asm<...>`, their declarations (`.sxp`), and the Multiboot linker script |
+| `examples/` | Example programs, including bootable kernels in `examples/kernel/` |
 | `tests/` | The test suite (`make test`) |
 | `docs/` | Documentation |
 | `third_party/LexEngine` | The [LexEngine](https://github.com/DominicThemiya/LexEngine) lexer library (git submodule) |

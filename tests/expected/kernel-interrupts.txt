@@ -1,0 +1,3 @@
+Stackexpr kernel booted
+breakpoint handled
+3 timer ticks

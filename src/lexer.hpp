@@ -9,17 +9,17 @@ namespace stackexpr {
 
 enum class Tok {
     // Keywords
-    Grab, StackExpr, End, Call, If, While, Do, Const, Invoke,
-    Dup, Swap, Drop,
-    Mod, UDiv, UMod, ULt, UGt, ULe, UGe,
-    And, Or, Xor, Not, Shl, Shr, Sar,
-    // Literals and names
+    Grab, StackExpr, Inline, Interrupt, Extern, End, Call,
+    If, Else, While, Do, Break, Continue, Return,
+    Const, Var, Data, Reserve, Struct, Sizeof,
+    Let, In, Set, As, Execute, Invoke, True, False,
+    // Literals and names. Built-in words such as `dup` and `outb` are identifiers;
+    // the parser recognises them by name.
     Ident, Int, Float, String,
-    // Operators
-    Plus, PlusPlus, Minus, Star, Slash,
-    Eq, Ne, Lt, Gt, Le, Ge,
-    Load8, Load16, Load32, Load64,
-    Store8, Store16, Store32, Store64,
+    // Operator symbols: + - * / ++ == != < > <= >= @8..@64 !8..!64
+    Op,
+    // Punctuation
+    LParen, RParen, DashDash, Colon, Amp,
     // Control
     Eof, Error,
 };

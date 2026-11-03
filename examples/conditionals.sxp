@@ -1,19 +1,17 @@
 grab asm<io>
 grab asm<linux64>
 
-stackexpr push_num 100 100 end
-stackexpr push_if_output 69 end
-stackexpr push_else_output 96 end
+stackexpr push_num ( -- int int) 100 100 end
 
 stackexpr main
 	call push_num
 	== if
-		call push_if_output
-		call putI64
+		69 call putI64
+	else
+		96 call putI64
 	end
 	call push_num
 	!= if
-		call push_else_output
-		call putI64
+		1 call putI64
 	end
 end

@@ -6,8 +6,8 @@
 //   stackexpr kernel.sxp --freestanding -T linker.ld --format bin
 
 #include "codegen.hpp"
-#include "lexer.hpp"
 #include "parser.hpp"
+#include "typecheck.hpp"
 
 #include <sys/wait.h>
 #include <unistd.h>
@@ -140,14 +140,10 @@ int main(int argc, char** argv) {
         return 2;
     }
 
-    std::ifstream in(input, std::ios::binary);
-    if (!in) {
+    if (!std::ifstream(input)) {
         std::cerr << "stackexpr: cannot open '" << input << "'\n";
         return 1;
     }
-    std::stringstream buf;
-    buf << in.rdbuf();
-    const std::string source = buf.str();
 
     fs::path out_path = output.empty() ? fs::path(input).replace_extension() : fs::path(output);
     if (out_path == fs::path(input)) out_path += ".out";
@@ -156,18 +152,17 @@ int main(int argc, char** argv) {
     fs::path lib_dir = lib_arg.empty() ? default_lib_dir() : fs::path(lib_arg);
 
     std::string assembly;
+    std::vector<std::string> files;
     try {
-        std::vector<stackexpr::Token> tokens = stackexpr::lex(source);
-        stackexpr::Program prog = stackexpr::parse(tokens);
-        for (const stackexpr::Include& inc : prog.includes) {
-            if (!fs::exists(lib_dir / (inc.lib + ".asm"))) {
-                throw stackexpr::CompileError(inc.loc, "library asm<" + inc.lib + "> not found in " +
-                                                           lib_dir.string());
-            }
-        }
+        stackexpr::Program prog = stackexpr::load_program(input, lib_dir, files);
+        stackexpr::typecheck(prog);
         assembly = stackexpr::generate(prog, codegen);
     } catch (const stackexpr::CompileError& e) {
-        std::cerr << input << ":" << e.loc.line << ":" << e.loc.column << ": error: " << e.what() << '\n';
+        const std::string& file = e.loc.file < files.size() ? files[e.loc.file] : input;
+        std::cerr << file << ":" << e.loc.line << ":" << e.loc.column << ": error: " << e.what() << '\n';
+        return 1;
+    } catch (const std::runtime_error& e) {
+        std::cerr << "stackexpr: " << e.what() << '\n';
         return 1;
     }
 

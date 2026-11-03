@@ -1,14 +1,16 @@
 // A freestanding kernel that writes "Hi" to the VGA text screen and halts.
 // asm<multiboot> makes it bootable with QEMU or GRUB; see docs/freestanding.md.
 //
-//   ./build/stackexpr examples/kernel/vga.sxp --freestanding --entry kmain -T lib/multiboot.ld
-//   qemu-system-x86_64 -kernel examples/kernel/vga
+//   make run-kernel
 
 grab asm<multiboot>
 
-stackexpr vga_put    // char index --   (white on black)
-	2 * 0xb8000 +
-	swap 0x0f00 or
+const VGA 0xb8000 as ptr     // the text screen: 80x25 cells of (character, colour)
+const WHITE_ON_BLACK 0x0f00
+
+stackexpr vga_put (char: int index: int --)
+	2 * VGA +
+	swap WHITE_ON_BLACK or
 	swap !16
 end
 

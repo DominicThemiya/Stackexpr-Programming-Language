@@ -85,3 +85,20 @@ print_signed_int64_negative:
     neg rax
     call _printRAX
     ret
+
+; input: a pointer on the stack
+; output: prints the 0-terminated string it points to
+%macro putStr 0
+    pop rsi
+    mov rdx, rsi
+%%len:
+    cmp byte [rdx], 0
+    je %%done
+    inc rdx
+    jmp %%len
+%%done:
+    sub rdx, rsi
+    mov rax, SYS_WRITE
+    mov rdi, STDOUT
+    syscall
+%endmacro

@@ -1,0 +1,34 @@
+grab asm<io>
+grab asm<linux64>
+
+// Fields are laid out in order, with no padding.
+struct Point
+	x int
+	y int
+	tag u8
+end
+
+const COUNT 3
+reserve points 64 align 16   // room for COUNT points
+
+// Address of points[i].
+stackexpr point (i: int -- ptr)
+	sizeof Point * points +
+end
+
+stackexpr main
+	sizeof Point call putI64                  // 17
+
+	// points[i] = (i * 10, i * 20)
+	0
+	while dup COUNT < do
+		dup 10 * over call point Point.x !64
+		dup 20 * over call point Point.y !64
+		++
+	end
+	drop
+
+	2 call point Point.x @64 call putI64      // 20
+	2 call point Point.y @64 call putI64      // 40
+	1 call point Point.y @64 call putI64      // 20
+end

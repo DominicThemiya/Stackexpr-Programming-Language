@@ -1,0 +1,20 @@
+// Shared helpers, grabbed by examples/functions.sxp.
+
+// Greatest common divisor (Euclid).
+stackexpr gcd (a: int b: int -- int)
+	while dup 0 != do
+		tuck mod
+	end
+	drop
+end
+
+// base to the power exp, using locals.
+stackexpr pow (base: int exp: int -- int)
+	let base exp in
+		1
+		while exp 0 > do
+			base *
+			exp 1 - set exp
+		end
+	end
+end
