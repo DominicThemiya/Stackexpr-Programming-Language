@@ -83,6 +83,15 @@ Identity mapping means hardware addresses, such as `0xb8000` for the VGA screen,
 qemu-system-x86_64 -kernel build/kernel
 ```
 
+If QEMU prints `VNC server running on ::1:5900` instead of opening a window, it was installed without a display backend. `qemu-system-x86_64 -display help` lists the backends you have. On Arch Linux, install one:
+
+| Package | Run with | Shows the screen |
+| --- | --- | --- |
+| `qemu-ui-gtk` | `qemu-system-x86_64 -kernel build/kernel` | In a window |
+| `qemu-ui-curses` | `qemu-system-x86_64 -kernel build/kernel -display curses` | In the terminal (text mode only). Quit with Esc then 2, then type `quit`. |
+
+You can also connect any VNC viewer to `localhost:5900` without installing anything.
+
 Useful additions:
 
 | Option | Use |
